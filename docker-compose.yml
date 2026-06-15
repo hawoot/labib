@@ -1,0 +1,37 @@
+# Orchestrates the two pieces of the backend:
+#   db  -> Postgres with the pgvector extension (our database)
+#   api -> the FastAPI app (built from ./backend)
+#
+# Run with:  docker compose up -d --build
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Inside the compose network the database is reachable as "db"
+      POSTGRES_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Left side = port exposed on your VPS. Change API_PORT in .env if needed.
+      - "${API_PORT:-8000}:8000"
+
+volumes:
+  pgdata:
