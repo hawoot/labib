@@ -5,31 +5,24 @@ full architecture blueprint.
 
 ## Backend — quick start
 
-Requirements on the host: **Docker** + **Docker Compose**.
+Clone to `/home/node/apps/labib`, drop your `.env` inside, then run the deploy
+script that matches your host. See [`deploy/README.md`](./deploy/README.md).
 
 ```bash
-# 1. Configure
-cp .env.example .env
-nano .env            # set a DB password and your LLM key
+mkdir -p /home/node/apps && cd /home/node/apps
+git clone https://github.com/hawoot/labib.git && cd labib
+# upload your .env into ./.env
 
-# 2. Build & run (API + Postgres/pgvector)
-docker compose up -d --build
-
-# 3. Check it's alive
-curl http://localhost:8000/health
-# -> {"status":"ok","database":"ok"}
-
-# 4. (optional) Check the AI brain is wired up
-curl http://localhost:8000/health/llm
+bash deploy/container.sh    # inside a Docker container (SQLite, no Docker needed)
+# --- or ---
+bash deploy/vps.sh          # on a real VPS with Docker (Postgres + pgvector)
 ```
 
-Useful commands:
+Check it's alive:
 
 ```bash
-docker compose logs -f api     # watch API logs
-docker compose ps              # see running containers
-docker compose down            # stop everything (data is kept)
-docker compose up -d --build   # rebuild after pulling new code
+curl http://localhost:8000/health        # -> {"status":"ok","database":"ok"}
+curl http://localhost:8000/health/llm     # checks the AI provider connection
 ```
 
 ## Layout
