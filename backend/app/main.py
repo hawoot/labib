@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from . import models  # noqa: F401  (import so tables register on Base.metadata)
 from .config import get_settings
 from .db import Base, engine, get_db
-from .routers import auth, documents, ingest, journeys
+from .routers import auth, documents, drilling, ingest, journeys
 from .worker import start_worker, stop_worker
 
 
@@ -34,6 +34,7 @@ app.include_router(auth.router)
 app.include_router(journeys.router)
 app.include_router(documents.router)
 app.include_router(ingest.router)
+app.include_router(drilling.router)
 
 # The built Flutter web app (if present) is served at /app, same origin as the API.
 _WEBAPP_DIR = os.path.join(os.path.dirname(__file__), "webapp")
