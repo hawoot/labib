@@ -17,10 +17,15 @@ from .chunking import chunk_text
 from .llm import complete_json
 from .parsing import parse_document
 
-# Phase-0 bounds (keep a single crunch tractable/cheap). Long-document
-# map-reduce is a later improvement. Reasoning models "think" a lot, so we keep
-# the structure input modest and give the calls a generous token budget.
-MAX_STRUCTURE_CHUNKS = 24
+# Crunch bounds. The structure pass walks the WHOLE document in windows of
+# STRUCTURE_WINDOW_CHUNKS, appending the unit/skill tree from each window, so
+# material past the first window is no longer silently dropped (previously the
+# crunch only ever saw the first 24 chunks ≈ ~30 pages). MAX_STRUCTURE_CHUNKS is
+# a generous overall safety cap (~240 chunks × ~1500 chars ≈ a few hundred
+# pages) that keeps a single crunch's cost/time bounded. Reasoning models
+# "think" a lot, so each call gets a generous token budget.
+STRUCTURE_WINDOW_CHUNKS = 24
+MAX_STRUCTURE_CHUNKS = 240
 MAX_PROVENANCE_CHARS = 4000
 STRUCTURE_MAX_TOKENS = 16000
 QUESTION_MAX_TOKENS = 4000
@@ -68,35 +73,49 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
     if not chunks:
         raise ValueError("No text could be extracted from this journey's documents.")
 
-    # 2) Structure pass: Unit tree + Skills --------------------------------
+    # 2) Structure pass: walk the WHOLE document in windows, appending the
+    #    unit/skill tree from each so material past the first window survives.
     _set(db, job, phase="structuring", progress=30)
     used = chunks[:MAX_STRUCTURE_CHUNKS]
-    numbered = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(used))
-    structure = complete_json(
-        [
-            {
-                "role": "system",
-                "content": "You are a curriculum designer. Break source material "
-                "into a hierarchy of units and atomic, masterable skills. "
-                "Output STRICT JSON only.",
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"INTENT: {journey.intent or 'general mastery'}\n\n"
-                    f"MATERIAL (numbered chunks):\n{numbered}\n\n"
-                    'Produce JSON: {"units":[{"title":str,"skills":'
-                    '[{"name":str,"description":str,"source_chunks":[int]}],'
-                    '"units":[...optional nested...]}]}. '
-                    "Keep skills atomic and specific. source_chunks are the chunk "
-                    "numbers each skill draws from."
-                ),
-            },
-        ],
-        max_tokens=STRUCTURE_MAX_TOKENS,
-    )
+    windows = [
+        used[i : i + STRUCTURE_WINDOW_CHUNKS]
+        for i in range(0, len(used), STRUCTURE_WINDOW_CHUNKS)
+    ]
+    skills: list[models.Skill] = []
+    unit_ordinal = 0
+    for w, window in enumerate(windows):
+        # Chunks are numbered locally to this window; source_chunks the model
+        # returns are resolved against `window` in _persist_units.
+        numbered = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(window))
+        structure = complete_json(
+            [
+                {
+                    "role": "system",
+                    "content": "You are a curriculum designer. Break source "
+                    "material into a hierarchy of units and atomic, masterable "
+                    "skills. Output STRICT JSON only.",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"INTENT: {journey.intent or 'general mastery'}\n\n"
+                        f"MATERIAL (numbered chunks):\n{numbered}\n\n"
+                        'Produce JSON: {"units":[{"title":str,"skills":'
+                        '[{"name":str,"description":str,"source_chunks":[int]}],'
+                        '"units":[...optional nested...]}]}. '
+                        "Keep skills atomic and specific. source_chunks are the "
+                        "chunk numbers each skill draws from."
+                    ),
+                },
+            ],
+            max_tokens=STRUCTURE_MAX_TOKENS,
+        )
+        units = structure.get("units", []) or []
+        skills += _persist_units(db, journey, version, units, window, None, unit_ordinal)
+        unit_ordinal += len(units)
+        # Structuring spans progress 30 -> 58 across however many windows.
+        _set(db, job, progress=30 + int(28 * (w + 1) / len(windows)))
 
-    skills = _persist_units(db, journey, version, structure.get("units", []), used, None, 0)
     db.flush()
     if not skills:
         raise ValueError("The structure pass produced no skills.")
