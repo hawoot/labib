@@ -202,6 +202,7 @@ class _JourneysScreenState extends State<JourneysScreen> {
     }
     if (_journeys!.isEmpty) {
       return const _Centered(
+        icon: Icons.auto_stories_outlined,
         text: 'What do you want to learn?\n\n'
             'Tap “New journey” to paste or upload something.',
       );
@@ -209,22 +210,45 @@ class _JourneysScreenState extends State<JourneysScreen> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemCount: _journeys!.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (_, i) {
           final j = _journeys![i] as Map<String, dynamic>;
           final intent = (j['intent'] as String?) ?? '';
+          final status = j['status'] as String?;
           return Card(
             child: ListTile(
-              title: Text(j['title'] ?? ''),
+              leading: _StatusAvatar(status: status),
+              title: Text(j['title'] ?? '',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
               subtitle: Text(intent.isNotEmpty ? intent : 'No intent set'),
-              trailing: _StatusChip(status: j['status'] as String?),
+              trailing: _StatusChip(status: status),
               onTap: () => _open(j),
             ),
           );
         },
       ),
+    );
+  }
+}
+
+/// A small colored circle that hints at a journey's state at a glance.
+class _StatusAvatar extends StatelessWidget {
+  const _StatusAvatar({this.status});
+  final String? status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color) = switch (status) {
+      'ready' => (Icons.check_circle_outline, Colors.green),
+      'crunching' => (Icons.hourglass_top, Colors.orange),
+      _ => (Icons.auto_stories_outlined, Theme.of(context).colorScheme.primary),
+    };
+    return CircleAvatar(
+      backgroundColor: color.withValues(alpha: 0.12),
+      foregroundColor: color,
+      child: Icon(icon),
     );
   }
 }
@@ -251,18 +275,24 @@ class _StatusChip extends StatelessWidget {
 }
 
 class _Centered extends StatelessWidget {
-  const _Centered({required this.text, this.action});
+  const _Centered({required this.text, this.action, this.icon});
   final String text;
   final Widget? action;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (icon != null) ...[
+              Icon(icon, size: 56, color: scheme.primary.withValues(alpha: 0.7)),
+              const SizedBox(height: 16),
+            ],
             Text(text,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleMedium),
