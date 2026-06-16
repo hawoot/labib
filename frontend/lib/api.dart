@@ -51,6 +51,19 @@ class Api {
         body: jsonEncode({'title': title, 'text': text}));
   }
 
+  static Future<void> addFile(
+      String jid, String filename, List<int> bytes) async {
+    final req = http.MultipartRequest(
+        'POST', Uri.parse('$base/journeys/$jid/documents/file'));
+    if (_userId != null) req.headers['X-User-Id'] = _userId!;
+    req.files
+        .add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+    final res = await req.send();
+    if (res.statusCode >= 400) {
+      throw Exception('Upload failed (HTTP ${res.statusCode})');
+    }
+  }
+
   static Future<void> startIngest(String jid) async {
     await http.post(Uri.parse('$base/journeys/$jid/ingest'), headers: _headers);
   }

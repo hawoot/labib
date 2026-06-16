@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../api.dart';
@@ -118,6 +119,26 @@ class _JourneyScreenState extends State<JourneyScreen> {
     }
   }
 
+  Future<void> _addFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf', 'txt', 'md'],
+      withData: true, // needed on web to get the bytes
+    );
+    if (result == null) return;
+    final f = result.files.single;
+    if (f.bytes == null) return;
+    try {
+      await Api.addFile(_jid, f.name, f.bytes!);
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+      }
+    }
+  }
+
   Future<void> _crunch() async {
     await Api.startIngest(_jid);
     setState(() => _job = {'status': 'queued', 'phase': 'queued', 'progress': 0});
@@ -145,10 +166,20 @@ class _JourneyScreenState extends State<JourneyScreen> {
                           subtitle: Text(d['kind'] ?? ''),
                         ),
                       )),
-                  OutlinedButton.icon(
-                    onPressed: busy ? null : _addTextDialog,
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add text'),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: busy ? null : _addTextDialog,
+                        icon: const Icon(Icons.notes),
+                        label: const Text('Add text'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: busy ? null : _addFile,
+                        icon: const Icon(Icons.upload_file),
+                        label: const Text('Add file (PDF)'),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 24),
                   _crunchSection(busy),
