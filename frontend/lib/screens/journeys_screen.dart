@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api.dart';
 import 'journey_screen.dart';
@@ -82,10 +83,104 @@ class _JourneysScreenState extends State<JourneysScreen> {
     ).then((_) => _load());
   }
 
+  Future<void> _accountDialog() async {
+    final codeInput = TextEditingController();
+    final switched = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Your account'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Your code — save it to get back in on any device or '
+                'browser. No password needed.'),
+            const SizedBox(height: 8),
+            Card(
+              color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
+              child: ListTile(
+                title: SelectableText(
+                  Api.code ?? '…',
+                  style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 20,
+                      letterSpacing: 2),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.copy),
+                  tooltip: 'Copy',
+                  onPressed: Api.code == null
+                      ? null
+                      : () {
+                          Clipboard.setData(ClipboardData(text: Api.code!));
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(content: Text('Code copied')),
+                          );
+                        },
+                ),
+              ),
+            ),
+            const Divider(height: 32),
+            const Text('Have a code from another device? Enter it to switch '
+                'to that account.'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: codeInput,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Enter a code',
+                hintText: 'XXXX-XXXX',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Close')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Switch'),
+          ),
+        ],
+      ),
+    );
+
+    if (switched != true) return;
+    final entered = codeInput.text.trim();
+    if (entered.isEmpty) return;
+    try {
+      final ok = await Api.loginWithCode(entered);
+      if (!mounted) return;
+      if (ok) {
+        setState(() => _journeys = null);
+        await _load();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No account with that code.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('labib')),
+      appBar: AppBar(
+        title: const Text('labib'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Your account',
+            onPressed: _accountDialog,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _createDialog,
         icon: const Icon(Icons.add),

@@ -23,6 +23,10 @@ from .worker import start_worker, stop_worker
 async def lifespan(app: FastAPI):
     # Phase 0: create any missing tables on startup. (Alembic migrations land
     # once the schema stabilises / we move to managed Postgres.)
+    # RESET_DB=1 wipes everything first — used for a one-time reset when the
+    # schema changes during early development. Leave it unset for normal runs.
+    if os.environ.get("RESET_DB") == "1":
+        Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     start_worker()  # background crunch worker
     yield

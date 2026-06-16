@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import re
+import secrets
 import uuid
 
 from sqlalchemy import (
@@ -37,6 +38,18 @@ def _uuid() -> str:
     return uuid.uuid4().hex
 
 
+# Human-friendly login code: the only thing a user needs to reclaim their
+# account on another browser/device. No password — just an unguessable code.
+# Alphabet drops easily-confused characters (0/O, 1/I/L) so it's easy to read
+# off a screen and retype.
+_CODE_CHARS = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+
+
+def _login_code() -> str:
+    raw = "".join(secrets.choice(_CODE_CHARS) for _ in range(8))
+    return f"{raw[:4]}-{raw[4:]}"
+
+
 def content_key(name: str) -> str:
     """Stable hash of a skill's *meaning* (normalized name).
 
@@ -56,6 +69,10 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    # The code the user types to log in on another device. Unique, no password.
+    code: Mapped[str] = mapped_column(
+        String(16), unique=True, index=True, default=_login_code
+    )
     created_at: Mapped[datetime.datetime] = _now_col()
 
     journeys: Mapped[list["Journey"]] = relationship(back_populates="owner")
