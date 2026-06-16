@@ -1,0 +1,52 @@
+import 'dart:async';
+import 'dart:js_interop';
+import 'dart:typed_data';
+
+import 'package:web/web.dart' as web;
+
+class PickedFile {
+  PickedFile(this.name, this.bytes);
+  final String name;
+  final Uint8List bytes;
+}
+
+/// Opens the browser's native file dialog and returns the chosen file's bytes.
+///
+/// Web-only (we currently build for web). When we package the Android app we'll
+/// add a mobile implementation behind the same `pickFile` signature.
+Future<PickedFile?> pickFile({String accept = '.pdf,.txt,.md'}) {
+  final completer = Completer<PickedFile?>();
+  final input = web.document.createElement('input') as web.HTMLInputElement;
+  input.type = 'file';
+  input.accept = accept;
+  input.style.display = 'none';
+  web.document.body!.appendChild(input);
+
+  void finish(PickedFile? value) {
+    input.remove();
+    if (!completer.isCompleted) completer.complete(value);
+  }
+
+  input.onchange = (web.Event _) {
+    final files = input.files;
+    if (files == null || files.length == 0) {
+      finish(null);
+      return;
+    }
+    final file = files.item(0)!;
+    final reader = web.FileReader();
+    reader.onload = (web.Event _) {
+      final buffer = reader.result as JSArrayBuffer;
+      finish(PickedFile(file.name, buffer.toDart.asUint8List()));
+    }.toJS;
+    reader.onerror = (web.Event _) {
+      finish(null);
+    }.toJS;
+    reader.readAsArrayBuffer(file);
+  }.toJS;
+
+  // If the user cancels, no event fires; that's fine — the future just never
+  // completes for that attempt, and the next tap creates a fresh input.
+  input.click();
+  return completer.future;
+}
