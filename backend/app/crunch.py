@@ -18,9 +18,12 @@ from .llm import complete_json
 from .parsing import parse_document
 
 # Phase-0 bounds (keep a single crunch tractable/cheap). Long-document
-# map-reduce is a later improvement.
-MAX_STRUCTURE_CHUNKS = 40
+# map-reduce is a later improvement. Reasoning models "think" a lot, so we keep
+# the structure input modest and give the calls a generous token budget.
+MAX_STRUCTURE_CHUNKS = 24
 MAX_PROVENANCE_CHARS = 4000
+STRUCTURE_MAX_TOKENS = 16000
+QUESTION_MAX_TOKENS = 4000
 
 QUESTION_MODES_HINT = (
     "Include about 2 'on_the_go' (quick recall), 1 'short_drill' (focused), "
@@ -88,7 +91,8 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
                     "numbers each skill draws from."
                 ),
             },
-        ]
+        ],
+        max_tokens=STRUCTURE_MAX_TOKENS,
     )
 
     skills = _persist_units(db, journey, version, structure.get("units", []), used, None, 0)
@@ -120,7 +124,8 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
                         f"{QUESTION_MODES_HINT} Keep answers concise."
                     ),
                 },
-            ]
+            ],
+            max_tokens=QUESTION_MAX_TOKENS,
         )
         for q in result.get("questions", []):
             if not isinstance(q, dict) or not q.get("prompt"):

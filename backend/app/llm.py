@@ -84,19 +84,53 @@ def _extract_json(text: str) -> str:
 
 
 def complete_json(
-    messages: list[dict], settings: Settings | None = None, max_tokens: int = 4096
+    messages: list[dict], settings: Settings | None = None, max_tokens: int = 8000
 ):
-    """Call the LLM and parse its reply as JSON, with one corrective retry."""
+    """Call the LLM and parse its reply as JSON, robust to reasoning models.
+
+    - asks for JSON mode (response_format) where the provider supports it;
+    - retries a couple of times if the reply is empty or unparseable;
+    - raises a descriptive error (not a cryptic JSONDecodeError) on final failure.
+    """
     import json
 
     llm = get_llm(settings)
-    raw = llm.complete(messages, max_tokens=max_tokens)
-    try:
-        return json.loads(_extract_json(raw))
-    except json.JSONDecodeError:
-        retry = messages + [
-            {"role": "assistant", "content": raw},
-            {"role": "user", "content": "That was not valid JSON. Reply with ONLY the JSON, no prose, no code fences."},
-        ]
-        raw = llm.complete(retry, max_tokens=max_tokens)
-        return json.loads(_extract_json(raw))
+    state = {"force_json": True}
+
+    def _call(msgs: list[dict]) -> str:
+        try:
+            kw = {"max_tokens": max_tokens}
+            if state["force_json"]:
+                kw["response_format"] = {"type": "json_object"}
+            return llm.complete(msgs, **kw)
+        except Exception:
+            # Provider likely rejects response_format -> drop it and retry once.
+            if state["force_json"]:
+                state["force_json"] = False
+                return llm.complete(msgs, max_tokens=max_tokens)
+            raise
+
+    raw = _call(messages)
+    for attempt in range(3):
+        text = _extract_json(raw)
+        if text.strip():
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                pass
+        if attempt == 2:
+            break
+        raw = _call(
+            messages
+            + [
+                {"role": "assistant", "content": raw or ""},
+                {
+                    "role": "user",
+                    "content": "Your previous reply was empty or not valid JSON. "
+                    "Reply with ONLY the JSON, no prose, no code fences.",
+                },
+            ]
+        )
+    raise ValueError(
+        f"LLM did not return parseable JSON. Last reply (truncated): {(raw or '')[:300]!r}"
+    )
