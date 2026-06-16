@@ -3,14 +3,30 @@
 Milestone 1 (the "walking skeleton"): prove the server runs, can reach the
 database, and (optionally) can reach the configured AI provider.
 """
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from . import models  # noqa: F401  (import so tables register on Base.metadata)
 from .config import get_settings
-from .db import get_db
+from .db import Base, engine, get_db
+from .routers import auth, documents, journeys
 
-app = FastAPI(title="labib API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Phase 0: create any missing tables on startup. (Alembic migrations land
+    # once the schema stabilises / we move to managed Postgres.)
+    Base.metadata.create_all(bind=engine)
+    yield
+
+
+app = FastAPI(title="labib API", version="0.2.0", lifespan=lifespan)
+app.include_router(auth.router)
+app.include_router(journeys.router)
+app.include_router(documents.router)
 
 
 @app.get("/")

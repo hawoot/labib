@@ -25,6 +25,24 @@ curl http://localhost:8000/health        # -> {"status":"ok","database":"ok"}
 curl http://localhost:8000/health/llm     # checks the AI provider connection
 ```
 
+## API so far
+
+All endpoints except `/auth/anonymous` require an `X-User-Id` header (get one
+from the bootstrap call).
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET  | `/health`, `/health/llm` | liveness, DB, AI provider |
+| POST | `/auth/anonymous` | create an anonymous account → `{user_id}` |
+| POST | `/journeys` | create a Journey (`title`, `intent`) |
+| GET  | `/journeys` | list my journeys + the shared library |
+| GET  | `/journeys/{id}` | get one Journey |
+| POST | `/journeys/{id}/documents/text` | add pasted text (`title`, `text`) |
+| POST | `/journeys/{id}/documents/file` | upload a file (multipart `file`) |
+| GET  | `/journeys/{id}/documents` | list a Journey's documents |
+
+Interactive docs are always at `/docs` on the running API.
+
 ## Layout
 
 ```
