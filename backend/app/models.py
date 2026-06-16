@@ -16,7 +16,18 @@ import hashlib
 import re
 import uuid
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -189,3 +200,58 @@ class IngestionJob(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+# --------------------------------------------------------------------------- #
+#  PERSONAL domain: a user's practice state (the drilling engine).
+# --------------------------------------------------------------------------- #
+class Enrollment(Base):
+    __tablename__ = "enrollments"
+    __table_args__ = (UniqueConstraint("user_id", "journey_id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), index=True)
+    journey_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("journeys.id"), index=True
+    )
+    created_at: Mapped[datetime.datetime] = _now_col()
+
+
+class SkillState(Base):
+    """One per (user, skill): mastery + spaced-repetition schedule."""
+
+    __tablename__ = "skill_states"
+    __table_args__ = (UniqueConstraint("user_id", "skill_id"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), index=True)
+    journey_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("journeys.id"), index=True
+    )
+    skill_id: Mapped[str] = mapped_column(String(32), ForeignKey("skills.id"), index=True)
+
+    mastery: Mapped[float] = mapped_column(Float, default=0.0)  # 0..1 (EMA)
+    reps: Mapped[int] = mapped_column(Integer, default=0)
+    interval_days: Mapped[float] = mapped_column(Float, default=0.0)
+    due_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    last_reviewed: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class Attempt(Base):
+    __tablename__ = "attempts"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), index=True)
+    journey_id: Mapped[str] = mapped_column(String(32), ForeignKey("journeys.id"))
+    skill_id: Mapped[str] = mapped_column(String(32), ForeignKey("skills.id"), index=True)
+    question_id: Mapped[str] = mapped_column(String(32), ForeignKey("questions.id"))
+
+    user_answer: Mapped[str] = mapped_column(Text)
+    score: Mapped[float] = mapped_column(Float, default=0.0)  # 0..1
+    correct: Mapped[bool] = mapped_column(Boolean, default=False)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime.datetime] = _now_col()

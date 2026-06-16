@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../api.dart';
 import '../web_file_picker.dart';
+import 'drill_screen.dart';
 
 /// One journey: add material, run the crunch, watch progress, see the result.
 class JourneyScreen extends StatefulWidget {
@@ -235,6 +236,23 @@ class _JourneyScreenState extends State<JourneyScreen> {
       children: [
         _section(
             '${cur['skill_count']} skills · ${cur['question_count']} questions'),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => DrillScreen(
+                  journeyId: _jid,
+                  title: widget.journey['title'] ?? 'Journey',
+                ),
+              ),
+            ).then((_) => _load()),
+            icon: const Icon(Icons.school),
+            label: const Text('Study'),
+          ),
+        ),
+        const SizedBox(height: 12),
         ...skills.map((s) {
           final questions = (s['questions'] as List<dynamic>);
           return Card(
@@ -264,7 +282,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
     final short = switch (m) {
       'on_the_go' => 'GO',
       'short_drill' => 'DRILL',
-      'problem' => 'PROB',
+      'deep_dive' => 'DIVE',
       'discuss' => 'DISC',
       _ => '?',
     };

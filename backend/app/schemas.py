@@ -82,3 +82,47 @@ class CurriculumOut(BaseModel):
     skill_count: int
     question_count: int
     skills: list[SkillOut]
+
+
+# --- Drilling ---
+class SessionItem(BaseModel):
+    question_id: str
+    skill_id: str
+    skill_name: str
+    mode: str
+    prompt: str
+
+
+class SessionOut(BaseModel):
+    journey_id: str
+    items: list[SessionItem]
+
+
+class AttemptCreate(BaseModel):
+    question_id: str
+    answer: str = Field(min_length=1)
+
+
+class AttemptResultOut(BaseModel):
+    score: float
+    correct: bool
+    feedback: str
+    answer: str | None
+    explanation: str | None
+    mastery: float | None
+
+
+class ProgressItem(BaseModel):
+    skill_id: str
+    name: str
+    mastery: float
+    reps: int
+    due: bool
+
+
+class ProgressOut(BaseModel):
+    journey_id: str
+    skill_count: int
+    mastered: int
+    due: int
+    items: list[ProgressItem]

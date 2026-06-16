@@ -26,8 +26,9 @@ STRUCTURE_MAX_TOKENS = 16000
 QUESTION_MAX_TOKENS = 4000
 
 QUESTION_MODES_HINT = (
-    "Include about 2 'on_the_go' (quick recall), 1 'short_drill' (focused), "
-    "and 1 'problem' (applied/deeper)."
+    "Include about 2 'on_the_go' (quick recall), 1 'short_drill' (focused), and "
+    "1 'deep_dive' (applied/deeper — problem-solving for factual material, or "
+    "discussion/analysis for narrative)."
 )
 
 
@@ -119,7 +120,7 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
                         f"SKILL: {skill.name}\nDESCRIPTION: {skill.description}\n"
                         f"SOURCE:\n{prov_text}\n\n"
                         'Produce JSON {"questions":[{"mode":'
-                        '"on_the_go|short_drill|problem","prompt":str,'
+                        '"on_the_go|short_drill|deep_dive","prompt":str,'
                         '"answer":str,"explanation":str}]}. '
                         f"{QUESTION_MODES_HINT} Keep answers concise."
                     ),
@@ -131,7 +132,7 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
             if not isinstance(q, dict) or not q.get("prompt"):
                 continue
             mode = q.get("mode", "on_the_go")
-            if mode not in ("on_the_go", "short_drill", "problem", "discuss"):
+            if mode not in ("on_the_go", "short_drill", "deep_dive", "discuss"):
                 mode = "on_the_go"
             db.add(
                 models.Question(

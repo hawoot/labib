@@ -81,4 +81,26 @@ class Api {
         headers: _headers);
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
+
+  // --- Drilling ---
+  static Future<List<dynamic>> getSession(String jid) async {
+    final res = await http.get(Uri.parse('$base/journeys/$jid/session'),
+        headers: _headers);
+    return (jsonDecode(res.body) as Map<String, dynamic>)['items']
+        as List<dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> submitAttempt(
+      String jid, String questionId, String answer) async {
+    final res = await http.post(Uri.parse('$base/journeys/$jid/attempts'),
+        headers: _headers,
+        body: jsonEncode({'question_id': questionId, 'answer': answer}));
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> getProgress(String jid) async {
+    final res = await http.get(Uri.parse('$base/journeys/$jid/progress'),
+        headers: _headers);
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
 }
