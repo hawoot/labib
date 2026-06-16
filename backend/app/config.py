@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     postgres_host: str = "db"
     postgres_port: int = 5432
 
+    # --- File storage (uploaded documents) ---
+    # Local disk in dev; swap for S3/R2 later behind the same interface.
+    storage_dir: str = "./data/uploads"
+
     # --- LLM ("the AI brain") ---
     # provider: "openai_compatible" (OpenRouter/DeepSeek/OpenAI/Ollama/...) or "anthropic"
     llm_provider: str = "openai_compatible"
