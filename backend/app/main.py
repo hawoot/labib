@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 from . import models  # noqa: F401  (import so tables register on Base.metadata)
 from .config import get_settings
 from .db import Base, engine, get_db
-from .routers import auth, documents, journeys
+from .routers import auth, documents, ingest, journeys
+from .worker import start_worker, stop_worker
 
 
 @asynccontextmanager
@@ -20,13 +21,16 @@ async def lifespan(app: FastAPI):
     # Phase 0: create any missing tables on startup. (Alembic migrations land
     # once the schema stabilises / we move to managed Postgres.)
     Base.metadata.create_all(bind=engine)
+    start_worker()  # background crunch worker
     yield
+    stop_worker()
 
 
-app = FastAPI(title="labib API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="labib API", version="0.3.0", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(journeys.router)
 app.include_router(documents.router)
+app.include_router(ingest.router)
 
 
 @app.get("/")
