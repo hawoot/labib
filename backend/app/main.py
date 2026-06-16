@@ -4,8 +4,11 @@ Milestone 1 (the "walking skeleton"): prove the server runs, can reach the
 database, and (optionally) can reach the configured AI provider.
 """
 from contextlib import asynccontextmanager
+import os
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -26,15 +29,23 @@ async def lifespan(app: FastAPI):
     stop_worker()
 
 
-app = FastAPI(title="labib API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="labib API", version="0.4.0", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(journeys.router)
 app.include_router(documents.router)
 app.include_router(ingest.router)
 
+# The built Flutter web app (if present) is served at /app, same origin as the API.
+_WEBAPP_DIR = os.path.join(os.path.dirname(__file__), "webapp")
+_HAS_WEBAPP = os.path.isdir(_WEBAPP_DIR)
+if _HAS_WEBAPP:
+    app.mount("/app", StaticFiles(directory=_WEBAPP_DIR, html=True), name="webapp")
+
 
 @app.get("/")
 def root():
+    if _HAS_WEBAPP:
+        return RedirectResponse("/app/")
     return {"name": "labib API", "status": "ok", "version": app.version}
 
 
