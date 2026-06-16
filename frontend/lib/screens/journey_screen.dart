@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../api.dart';
+import '../web_file_picker.dart';
 
 /// One journey: add material, run the crunch, watch progress, see the result.
 class JourneyScreen extends StatefulWidget {
@@ -120,16 +120,10 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 
   Future<void> _addFile() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'txt', 'md'],
-      withData: true, // needed on web to get the bytes
-    );
-    if (result == null) return;
-    final f = result.files.single;
-    if (f.bytes == null) return;
     try {
-      await Api.addFile(_jid, f.name, f.bytes!);
+      final picked = await pickFile();
+      if (picked == null) return;
+      await Api.addFile(_jid, picked.name, picked.bytes);
       await _load();
     } catch (e) {
       if (mounted) {
