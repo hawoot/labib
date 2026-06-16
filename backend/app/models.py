@@ -12,9 +12,11 @@ engine tables (Enrollment, SkillState, Attempt, ...).
 from __future__ import annotations
 
 import datetime
+import hashlib
+import re
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -22,6 +24,17 @@ from .db import Base
 
 def _uuid() -> str:
     return uuid.uuid4().hex
+
+
+def content_key(name: str) -> str:
+    """Stable hash of a skill's *meaning* (normalized name).
+
+    Used to match skills across re-crunches so progress can carry over later.
+    Phase 0 uses the normalized name only; an embedding signature can be mixed
+    in later without changing callers.
+    """
+    norm = re.sub(r"\s+", " ", name.strip().lower())
+    return hashlib.sha256(norm.encode()).hexdigest()
 
 
 def _now_col() -> Mapped[datetime.datetime]:
@@ -80,3 +93,99 @@ class Document(Base):
     created_at: Mapped[datetime.datetime] = _now_col()
 
     journey: Mapped["Journey"] = relationship(back_populates="documents")
+
+
+# --------------------------------------------------------------------------- #
+#  Crunch outputs: Chunk -> (Unit tree / Skill) -> Question
+#  Generated rows are stamped with the Journey's curriculum_version so a
+#  re-crunch can supersede them (version bump) without hard-deleting history.
+# --------------------------------------------------------------------------- #
+class Chunk(Base):
+    __tablename__ = "chunks"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    document_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("documents.id"), index=True
+    )
+    journey_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("journeys.id"), index=True
+    )
+    ordinal: Mapped[int] = mapped_column(Integer)  # order within the document
+    text: Mapped[str] = mapped_column(Text)
+    location: Mapped[str | None] = mapped_column(String(64), nullable=True)  # e.g. "p.12"
+    created_at: Mapped[datetime.datetime] = _now_col()
+
+
+class Unit(Base):
+    __tablename__ = "units"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    journey_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("journeys.id"), index=True
+    )
+    parent_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("units.id"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(300))
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    source: Mapped[str] = mapped_column(String(16), default="generated")  # generated|manual
+    curriculum_version: Mapped[int] = mapped_column(Integer, default=1, index=True)
+    created_at: Mapped[datetime.datetime] = _now_col()
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    journey_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("journeys.id"), index=True
+    )
+    unit_id: Mapped[str | None] = mapped_column(
+        String(32), ForeignKey("units.id"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(300))
+    description: Mapped[str] = mapped_column(Text, default="")
+    content_key: Mapped[str] = mapped_column(String(64), index=True)
+    provenance: Mapped[list] = mapped_column(JSON, default=list)  # source chunk ids
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    curriculum_version: Mapped[int] = mapped_column(Integer, default=1, index=True)
+    created_at: Mapped[datetime.datetime] = _now_col()
+
+
+class Question(Base):
+    __tablename__ = "questions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    skill_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("skills.id"), index=True
+    )
+    journey_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("journeys.id"), index=True
+    )
+    # on_the_go | short_drill | problem | discuss
+    mode: Mapped[str] = mapped_column(String(16), index=True)
+    prompt: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provenance: Mapped[list] = mapped_column(JSON, default=list)
+    curriculum_version: Mapped[int] = mapped_column(Integer, default=1, index=True)
+    created_at: Mapped[datetime.datetime] = _now_col()
+
+
+class IngestionJob(Base):
+    __tablename__ = "ingestion_jobs"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    journey_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("journeys.id"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)  # queued|running|done|failed
+    phase: Mapped[str] = mapped_column(String(20), default="queued")
+    progress: Mapped[int] = mapped_column(Integer, default=0)  # 0..100
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    curriculum_version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime.datetime] = _now_col()
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

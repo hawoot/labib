@@ -38,8 +38,11 @@ from the bootstrap call).
 | GET  | `/journeys` | list my journeys + the shared library |
 | GET  | `/journeys/{id}` | get one Journey |
 | POST | `/journeys/{id}/documents/text` | add pasted text (`title`, `text`) |
-| POST | `/journeys/{id}/documents/file` | upload a file (multipart `file`) |
+| POST | `/journeys/{id}/documents/file` | upload a file — PDF or text (multipart `file`) |
 | GET  | `/journeys/{id}/documents` | list a Journey's documents |
+| POST | `/journeys/{id}/ingest` | start the crunch (background) |
+| GET  | `/journeys/{id}/ingest` | poll crunch status / phase / progress |
+| GET  | `/journeys/{id}/curriculum` | the generated skills + question bank |
 
 Interactive docs are always at `/docs` on the running API.
 

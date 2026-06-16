@@ -67,3 +67,36 @@ def get_llm(settings: Settings | None = None) -> LLMProvider:
     if s.llm_provider == "anthropic":
         return AnthropicProvider(s)
     return OpenAICompatibleProvider(s)
+
+
+def _extract_json(text: str) -> str:
+    """Pull a JSON object/array out of a model reply (strips ``` fences, prose)."""
+    t = text.strip()
+    if t.startswith("```"):
+        t = t.split("```", 2)[1] if t.count("```") >= 2 else t.strip("`")
+        if t.lstrip().startswith("json"):
+            t = t.lstrip()[4:]
+    start = min(
+        (i for i in (t.find("{"), t.find("[")) if i != -1), default=-1
+    )
+    end = max(t.rfind("}"), t.rfind("]"))
+    return t[start : end + 1] if start != -1 and end != -1 else t
+
+
+def complete_json(
+    messages: list[dict], settings: Settings | None = None, max_tokens: int = 4096
+):
+    """Call the LLM and parse its reply as JSON, with one corrective retry."""
+    import json
+
+    llm = get_llm(settings)
+    raw = llm.complete(messages, max_tokens=max_tokens)
+    try:
+        return json.loads(_extract_json(raw))
+    except json.JSONDecodeError:
+        retry = messages + [
+            {"role": "assistant", "content": raw},
+            {"role": "user", "content": "That was not valid JSON. Reply with ONLY the JSON, no prose, no code fences."},
+        ]
+        raw = llm.complete(retry, max_tokens=max_tokens)
+        return json.loads(_extract_json(raw))
