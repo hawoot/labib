@@ -36,7 +36,7 @@ def health_llm():
 
         reply = get_llm(s).complete(
             [{"role": "user", "content": "Reply with the single word: pong"}],
-            max_tokens=10,
+            max_tokens=256,  # reasoning models burn tokens thinking; keep headroom
         )
     except Exception as e:  # surface the real error to help debugging
         raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")

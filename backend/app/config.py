@@ -15,7 +15,12 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     secret_key: str = "dev-secret-change-me"
 
-    # --- Database (Postgres + pgvector) ---
+    # --- Database ---
+    # Full override. If set, it wins (e.g. SQLite for an in-container deploy:
+    # DATABASE_URL=sqlite:////home/node/apps/labib/labib.db). If empty, the URL
+    # is built from the POSTGRES_* parts below (the docker-compose / VPS path).
+    database_url: str = ""
+
     postgres_user: str = "labib"
     postgres_password: str = "labib"
     postgres_db: str = "labib"
@@ -30,7 +35,9 @@ class Settings(BaseSettings):
     llm_model: str = "deepseek/deepseek-chat"
 
     @property
-    def database_url(self) -> str:
+    def sqlalchemy_url(self) -> str:
+        if self.database_url:
+            return self.database_url
         return (
             f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
