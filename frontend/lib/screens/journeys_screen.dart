@@ -15,6 +15,7 @@ class JourneysScreen extends StatefulWidget {
 class _JourneysScreenState extends State<JourneysScreen> {
   List<dynamic>? _journeys;
   String? _error;
+  bool _showArchived = false;
 
   @override
   void initState() {
@@ -26,10 +27,54 @@ class _JourneysScreenState extends State<JourneysScreen> {
     setState(() => _error = null);
     try {
       await Api.ensureUser();
-      final js = await Api.listJourneys();
+      final js = await Api.listJourneys(archived: _showArchived);
       if (mounted) setState(() => _journeys = js);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
+    }
+  }
+
+  Future<void> _archive(String jid) async {
+    await Api.archiveJourney(jid);
+    await _load();
+  }
+
+  Future<void> _unarchive(String jid) async {
+    await Api.unarchiveJourney(jid);
+    await _load();
+  }
+
+  Future<void> _confirmDelete(Map<String, dynamic> j) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete “${j['title']}”?'),
+        content: const Text(
+            'This permanently deletes the journey and everything in it — '
+            'material, questions, and your practice history. This cannot be '
+            'undone.\n\nTo just hide it instead, use Archive.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete forever'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await Api.deleteJourney(j['id'] as String);
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      }
     }
   }
 
@@ -172,8 +217,19 @@ class _JourneysScreenState extends State<JourneysScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('labib'),
+        title: Text(_showArchived ? 'Archived' : 'labib'),
         actions: [
+          IconButton(
+            icon: Icon(_showArchived ? Icons.unarchive_outlined : Icons.archive_outlined),
+            tooltip: _showArchived ? 'Back to active' : 'View archived',
+            onPressed: () {
+              setState(() {
+                _showArchived = !_showArchived;
+                _journeys = null;
+              });
+              _load();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.person_outline),
             tooltip: 'Your account',
@@ -181,11 +237,13 @@ class _JourneysScreenState extends State<JourneysScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _createDialog,
-        icon: const Icon(Icons.add),
-        label: const Text('New journey'),
-      ),
+      floatingActionButton: _showArchived
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _createDialog,
+              icon: const Icon(Icons.add),
+              label: const Text('New journey'),
+            ),
       body: _body(),
     );
   }
@@ -201,10 +259,14 @@ class _JourneysScreenState extends State<JourneysScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_journeys!.isEmpty) {
-      return const _Centered(
-        icon: Icons.auto_stories_outlined,
-        text: 'What do you want to learn?\n\n'
-            'Tap “New journey” to paste or upload something.',
+      return _Centered(
+        icon: _showArchived
+            ? Icons.archive_outlined
+            : Icons.auto_stories_outlined,
+        text: _showArchived
+            ? 'Nothing archived.'
+            : 'What do you want to learn?\n\n'
+                'Tap “New journey” to paste or upload something.',
       );
     }
     return RefreshIndicator(
@@ -223,12 +285,60 @@ class _JourneysScreenState extends State<JourneysScreen> {
               title: Text(j['title'] ?? '',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               subtitle: Text(intent.isNotEmpty ? intent : 'No intent set'),
-              trailing: _StatusChip(status: status),
+              trailing: _journeyMenu(j, status),
               onTap: () => _open(j),
             ),
           );
         },
       ),
+    );
+  }
+
+  Widget _journeyMenu(Map<String, dynamic> j, String? status) {
+    final jid = j['id'] as String;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _StatusChip(status: status),
+        PopupMenuButton<String>(
+          tooltip: 'More',
+          onSelected: (v) {
+            switch (v) {
+              case 'archive':
+                _archive(jid);
+              case 'unarchive':
+                _unarchive(jid);
+              case 'delete':
+                _confirmDelete(j);
+            }
+          },
+          itemBuilder: (_) => [
+            if (_showArchived)
+              const PopupMenuItem(
+                value: 'unarchive',
+                child: ListTile(
+                    leading: Icon(Icons.unarchive_outlined),
+                    title: Text('Unarchive'),
+                    contentPadding: EdgeInsets.zero),
+              )
+            else
+              const PopupMenuItem(
+                value: 'archive',
+                child: ListTile(
+                    leading: Icon(Icons.archive_outlined),
+                    title: Text('Archive'),
+                    contentPadding: EdgeInsets.zero),
+              ),
+            const PopupMenuItem(
+              value: 'delete',
+              child: ListTile(
+                  leading: Icon(Icons.delete_outline),
+                  title: Text('Delete'),
+                  contentPadding: EdgeInsets.zero),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

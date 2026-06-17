@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     # --- App ---
     app_env: str = "dev"
     secret_key: str = "dev-secret-change-me"
+    # If set, the /debug/* inspection endpoints require this value in the
+    # `X-Debug-Key` header. If empty, /debug/* is open (fine for a private box).
+    debug_key: str = ""
 
     # --- Database ---
     # Full override. If set, it wins (e.g. SQLite for an in-container deploy:
