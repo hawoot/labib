@@ -14,6 +14,8 @@ on:
   push:
     branches: [main]
     paths: ["frontend/**"]   # bundle commit touches backend/, so no loop
+  pull_request:
+    paths: ["frontend/**", ".github/workflows/build.yml"]
   workflow_dispatch:
 
 permissions:
@@ -33,6 +35,7 @@ jobs:
           flutter pub get
           flutter build web --release
       - name: Commit the rebuilt web bundle
+        if: github.event_name != 'pull_request'   # on PRs, just validate the build
         run: |
           rm -rf backend/app/webapp
           cp -r frontend/build/web backend/app/webapp
