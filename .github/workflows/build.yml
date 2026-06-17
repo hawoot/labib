@@ -60,6 +60,12 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+      - name: Add Android platform files
+        # The project was scaffolded web-only (no android/ folder). Generate the
+        # Android Gradle project in place; only adds platform files, leaves the
+        # Dart code and pubspec untouched.
+        working-directory: frontend
+        run: flutter create --platforms=android --org com.labib .
       - name: Build APK
         working-directory: frontend
         run: |
