@@ -23,7 +23,13 @@ class ApiException implements Exception {
 /// re-authenticates once and retries — so a stale id self-heals instead of
 /// crashing the app.
 class Api {
-  static final String base = Uri.base.origin;
+  /// API origin. On web we derive it from the page URL (same-origin, so the
+  /// tunnel URL can change freely). A native build (Android/iOS) has no page
+  /// URL, so it reads a compile-time override baked in at build time:
+  ///   flutter build apk --dart-define=API_BASE_URL=https://your-server
+  static const String _baseOverride = String.fromEnvironment('API_BASE_URL');
+  static final String base =
+      _baseOverride.isNotEmpty ? _baseOverride : Uri.base.origin;
   static String? _userId;
   static String? _code;
 

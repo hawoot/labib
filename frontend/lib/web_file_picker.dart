@@ -59,6 +59,7 @@ Future<List<PickedFile>> pickFiles({String accept = '.pdf,.txt,.md'}) {
   input.type = 'file';
   input.accept = accept;
   input.multiple = true;
+  input.setAttribute('multiple', 'multiple'); // belt-and-suspenders for the dialog
   input.style.display = 'none';
   web.document.body!.appendChild(input);
 

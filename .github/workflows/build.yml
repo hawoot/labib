@@ -1,0 +1,69 @@
+# Builds the app in the cloud so we never depend on a toolchain being present
+# on the deploy host.
+#
+#  * web bundle  -> rebuilt and committed back into backend/app/webapp, so
+#                   `git pull` on the host always serves the current UI (no
+#                   `flutter build` needed there).
+#  * Android APK -> uploaded as a downloadable artifact you can install on a
+#                   phone. Set a repo variable API_BASE_URL (Settings → Secrets
+#                   and variables → Actions → Variables) to your server's public
+#                   URL so the native app knows where the backend is.
+name: build
+
+on:
+  push:
+    branches: [main]
+    paths: ["frontend/**"]   # bundle commit touches backend/, so no loop
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Build web
+        working-directory: frontend
+        run: |
+          flutter pub get
+          flutter build web --release
+      - name: Commit the rebuilt web bundle
+        run: |
+          rm -rf backend/app/webapp
+          cp -r frontend/build/web backend/app/webapp
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/app/webapp
+          if git diff --cached --quiet; then
+            echo "Web bundle unchanged."
+          else
+            git commit -m "chore: rebuild web bundle [skip ci]"
+            git push
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-bundle
+          path: frontend/build/web
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Build APK
+        working-directory: frontend
+        run: |
+          flutter pub get
+          flutter build apk --release \
+            --dart-define=API_BASE_URL=${{ vars.API_BASE_URL }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: frontend/build/app/outputs/flutter-apk/app-release.apk
