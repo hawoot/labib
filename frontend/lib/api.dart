@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -23,13 +24,54 @@ class ApiException implements Exception {
 /// re-authenticates once and retries — so a stale id self-heals instead of
 /// crashing the app.
 class Api {
-  /// API origin. On web we derive it from the page URL (same-origin, so the
-  /// tunnel URL can change freely). A native build (Android/iOS) has no page
-  /// URL, so it reads a compile-time override baked in at build time:
+  /// Optional build-time default server address (rarely needed):
   ///   flutter build apk --dart-define=API_BASE_URL=https://your-server
   static const String _baseOverride = String.fromEnvironment('API_BASE_URL');
-  static final String base =
-      _baseOverride.isNotEmpty ? _baseOverride : Uri.base.origin;
+
+  /// API origin.
+  /// - **Web**: the page origin. The app is served from the same host as the
+  ///   API, so it follows the URL automatically — the tunnel can change freely
+  ///   and there's no CORS to configure.
+  /// - **Native (Android/iOS)**: there's no page URL, so the address is set by
+  ///   the user in-app and stored on the device (see [setServerUrl]). This way
+  ///   the APK is generic and keeps working when the server URL changes — just
+  ///   update the field, no rebuild. Falls back to the build-time override.
+  static String base = kIsWeb ? Uri.base.origin : _baseOverride;
+
+  /// Whether the server address is user-configurable (native only; web is auto).
+  static bool get configurable => !kIsWeb;
+
+  /// True once we have a server address to talk to.
+  static bool get hasServer => base.isNotEmpty;
+
+  /// The current server address, for display/editing.
+  static String get serverUrl => base;
+
+  /// Load the saved native server address into [base] (no-op on web).
+  static Future<void> loadServerUrl() async {
+    if (kIsWeb) return;
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString('server_url');
+    if (saved != null && saved.isNotEmpty) base = saved;
+  }
+
+  /// Persist a user-entered server address (native).
+  static Future<void> setServerUrl(String url) async {
+    base = _normalizeUrl(url);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('server_url', base);
+  }
+
+  static String _normalizeUrl(String url) {
+    var u = url.trim();
+    if (u.isEmpty) return '';
+    if (!u.startsWith('http://') && !u.startsWith('https://')) u = 'https://$u';
+    while (u.endsWith('/')) {
+      u = u.substring(0, u.length - 1);
+    }
+    return u;
+  }
+
   static String? _userId;
   static String? _code;
 
@@ -38,6 +80,7 @@ class Api {
   static String? get code => _code;
 
   static Future<void> ensureUser() async {
+    await loadServerUrl();
     final prefs = await SharedPreferences.getInstance();
     _userId = prefs.getString('user_id');
     _code = prefs.getString('code');

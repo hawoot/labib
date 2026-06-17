@@ -5,9 +5,9 @@
 #                   `git pull` on the host always serves the current UI (no
 #                   `flutter build` needed there).
 #  * Android APK -> uploaded as a downloadable artifact you can install on a
-#                   phone. Set a repo variable API_BASE_URL (Settings → Secrets
-#                   and variables → Actions → Variables) to your server's public
-#                   URL so the native app knows where the backend is.
+#                   phone. The app asks for the server URL on first run and
+#                   stores it on the device, so the APK is generic — nothing to
+#                   configure here, and it survives the server URL changing.
 name: build
 
 on:
@@ -68,10 +68,11 @@ jobs:
         run: flutter create --platforms=android --org com.labib .
       - name: Build APK
         working-directory: frontend
+        # No server URL baked in — the app asks for it on first run and stores it
+        # on the device, so the APK is generic and survives the URL changing.
         run: |
           flutter pub get
-          flutter build apk --release \
-            --dart-define=API_BASE_URL=${{ vars.API_BASE_URL }}
+          flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: app-release-apk
