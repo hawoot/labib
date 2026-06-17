@@ -1,14 +1,9 @@
 import 'dart:async';
 import 'dart:js_interop';
-import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
-class PickedFile {
-  PickedFile(this.name, this.bytes);
-  final String name;
-  final Uint8List bytes;
-}
+import 'picked_file.dart';
 
 /// Opens the browser's native file dialog and returns the chosen file's bytes.
 ///
