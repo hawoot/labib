@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api.dart';
 import 'journey_screen.dart';
@@ -82,10 +83,104 @@ class _JourneysScreenState extends State<JourneysScreen> {
     ).then((_) => _load());
   }
 
+  Future<void> _accountDialog() async {
+    final codeInput = TextEditingController();
+    final switched = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Your account'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Your code — save it to get back in on any device or '
+                'browser. No password needed.'),
+            const SizedBox(height: 8),
+            Card(
+              color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
+              child: ListTile(
+                title: SelectableText(
+                  Api.code ?? '…',
+                  style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 20,
+                      letterSpacing: 2),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.copy),
+                  tooltip: 'Copy',
+                  onPressed: Api.code == null
+                      ? null
+                      : () {
+                          Clipboard.setData(ClipboardData(text: Api.code!));
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            const SnackBar(content: Text('Code copied')),
+                          );
+                        },
+                ),
+              ),
+            ),
+            const Divider(height: 32),
+            const Text('Have a code from another device? Enter it to switch '
+                'to that account.'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: codeInput,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Enter a code',
+                hintText: 'XXXX-XXXX',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Close')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Switch'),
+          ),
+        ],
+      ),
+    );
+
+    if (switched != true) return;
+    final entered = codeInput.text.trim();
+    if (entered.isEmpty) return;
+    try {
+      final ok = await Api.loginWithCode(entered);
+      if (!mounted) return;
+      if (ok) {
+        setState(() => _journeys = null);
+        await _load();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No account with that code.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('labib')),
+      appBar: AppBar(
+        title: const Text('labib'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Your account',
+            onPressed: _accountDialog,
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _createDialog,
         icon: const Icon(Icons.add),
@@ -107,6 +202,7 @@ class _JourneysScreenState extends State<JourneysScreen> {
     }
     if (_journeys!.isEmpty) {
       return const _Centered(
+        icon: Icons.auto_stories_outlined,
         text: 'What do you want to learn?\n\n'
             'Tap “New journey” to paste or upload something.',
       );
@@ -114,22 +210,45 @@ class _JourneysScreenState extends State<JourneysScreen> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
         itemCount: _journeys!.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
         itemBuilder: (_, i) {
           final j = _journeys![i] as Map<String, dynamic>;
           final intent = (j['intent'] as String?) ?? '';
+          final status = j['status'] as String?;
           return Card(
             child: ListTile(
-              title: Text(j['title'] ?? ''),
+              leading: _StatusAvatar(status: status),
+              title: Text(j['title'] ?? '',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
               subtitle: Text(intent.isNotEmpty ? intent : 'No intent set'),
-              trailing: _StatusChip(status: j['status'] as String?),
+              trailing: _StatusChip(status: status),
               onTap: () => _open(j),
             ),
           );
         },
       ),
+    );
+  }
+}
+
+/// A small colored circle that hints at a journey's state at a glance.
+class _StatusAvatar extends StatelessWidget {
+  const _StatusAvatar({this.status});
+  final String? status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color) = switch (status) {
+      'ready' => (Icons.check_circle_outline, Colors.green),
+      'crunching' => (Icons.hourglass_top, Colors.orange),
+      _ => (Icons.auto_stories_outlined, Theme.of(context).colorScheme.primary),
+    };
+    return CircleAvatar(
+      backgroundColor: color.withValues(alpha: 0.12),
+      foregroundColor: color,
+      child: Icon(icon),
     );
   }
 }
@@ -156,18 +275,24 @@ class _StatusChip extends StatelessWidget {
 }
 
 class _Centered extends StatelessWidget {
-  const _Centered({required this.text, this.action});
+  const _Centered({required this.text, this.action, this.icon});
   final String text;
   final Widget? action;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (icon != null) ...[
+              Icon(icon, size: 56, color: scheme.primary.withValues(alpha: 0.7)),
+              const SizedBox(height: 16),
+            ],
             Text(text,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleMedium),

@@ -8,6 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class AnonymousAuthOut(BaseModel):
     user_id: str
+    code: str
+
+
+class LoginIn(BaseModel):
+    code: str
 
 
 class JourneyCreate(BaseModel):

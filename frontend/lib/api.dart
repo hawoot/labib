@@ -11,14 +11,44 @@ import 'package:shared_preferences/shared_preferences.dart';
 class Api {
   static final String base = Uri.base.origin;
   static String? _userId;
+  static String? _code;
+
+  /// The current account's login code (shown to the user so they can get back
+  /// in on another device). Null until [ensureUser] has run.
+  static String? get code => _code;
 
   static Future<void> ensureUser() async {
     final prefs = await SharedPreferences.getInstance();
     _userId = prefs.getString('user_id');
+    _code = prefs.getString('code');
     if (_userId != null) return;
     final res = await http.post(Uri.parse('$base/auth/anonymous'));
-    _userId = (jsonDecode(res.body) as Map)['user_id'] as String;
+    await _store(prefs, jsonDecode(res.body) as Map<String, dynamic>);
+  }
+
+  /// Switch to the account identified by [code]. Returns false if no such
+  /// account exists; throws on other failures.
+  static Future<bool> loginWithCode(String code) async {
+    final res = await http.post(
+      Uri.parse('$base/auth/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'code': code}),
+    );
+    if (res.statusCode == 404) return false;
+    if (res.statusCode >= 400) {
+      throw Exception('Login failed (HTTP ${res.statusCode})');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await _store(prefs, jsonDecode(res.body) as Map<String, dynamic>);
+    return true;
+  }
+
+  static Future<void> _store(
+      SharedPreferences prefs, Map<String, dynamic> data) async {
+    _userId = data['user_id'] as String;
+    _code = data['code'] as String?;
     await prefs.setString('user_id', _userId!);
+    if (_code != null) await prefs.setString('code', _code!);
   }
 
   static Map<String, String> get _headers => {
