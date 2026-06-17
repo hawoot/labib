@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api.dart';
-import '../web_file_picker.dart';
+import '../file_picker.dart';
 import 'drill_screen.dart';
 
 /// One journey: add material, run the crunch, watch progress, see the result.
