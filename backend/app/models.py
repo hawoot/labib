@@ -91,6 +91,10 @@ class Journey(Base):
     intent: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(32), default="new")
     curriculum_version: Mapped[int] = mapped_column(Integer, default=1)
+    # Soft delete: set = hidden from the normal list but data kept (reversible).
+    archived_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime.datetime] = _now_col()
 
     owner: Mapped["User | None"] = relationship(back_populates="journeys")

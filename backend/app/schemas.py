@@ -29,6 +29,7 @@ class JourneyOut(BaseModel):
     intent: str
     status: str
     curriculum_version: int
+    archived_at: datetime.datetime | None = None
     created_at: datetime.datetime
 
 

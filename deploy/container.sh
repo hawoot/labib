@@ -38,6 +38,18 @@ python3 -m venv .venv
 ./.venv/bin/pip install --upgrade pip >/dev/null
 ./.venv/bin/pip install -r backend/requirements.txt
 
+# 2b. Build the Flutter web app so the served UI matches the current code. ------
+#     Skipped (with a warning) if the Flutter SDK isn't installed — the existing
+#     prebuilt bundle in backend/app/webapp is served as-is in that case.
+if command -v flutter >/dev/null 2>&1; then
+  echo "==> Building Flutter web app..."
+  ( cd "$APP_DIR/frontend" && flutter build web --release )
+  rm -rf "$APP_DIR/backend/app/webapp"
+  cp -r "$APP_DIR/frontend/build/web" "$APP_DIR/backend/app/webapp"
+else
+  echo "==> WARNING: 'flutter' not found — serving the existing prebuilt web app."
+fi
+
 # 3. Load .env, default the DB to a local SQLite file ---------------------------
 set -a; . ./.env; set +a
 export DATABASE_URL="${DATABASE_URL:-sqlite:///$APP_DIR/labib.db}"

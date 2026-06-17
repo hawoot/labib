@@ -120,16 +120,35 @@ class _JourneyScreenState extends State<JourneyScreen> {
     }
   }
 
-  Future<void> _addFile() async {
+  Future<void> _addFiles() async {
     try {
-      final picked = await pickFile();
-      if (picked == null) return;
-      await Api.addFile(_jid, picked.name, picked.bytes);
+      final picked = await pickFiles();
+      if (picked.isEmpty) return;
+      final messenger = ScaffoldMessenger.of(context);
+      for (var i = 0; i < picked.length; i++) {
+        if (mounted) {
+          messenger.hideCurrentSnackBar();
+          messenger.showSnackBar(SnackBar(
+            duration: const Duration(minutes: 1),
+            content:
+                Text('Uploading ${i + 1}/${picked.length}: ${picked[i].name}'),
+          ));
+        }
+        await Api.addFile(_jid, picked[i].name, picked[i].bytes);
+      }
       await _load();
+      if (mounted) {
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(SnackBar(
+          content: Text('Added ${picked.length} '
+              'file${picked.length == 1 ? '' : 's'}'),
+        ));
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text('Upload failed: $e')));
       }
     }
   }
@@ -170,9 +189,9 @@ class _JourneyScreenState extends State<JourneyScreen> {
                         label: const Text('Add text'),
                       ),
                       OutlinedButton.icon(
-                        onPressed: busy ? null : _addFile,
+                        onPressed: busy ? null : _addFiles,
                         icon: const Icon(Icons.upload_file),
-                        label: const Text('Add file (PDF)'),
+                        label: const Text('Add files (PDF)'),
                       ),
                     ],
                   ),
