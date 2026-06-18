@@ -46,7 +46,11 @@ def _fake_complete_json(messages, **_kw):
                 }
             ]
         }
-    return {"questions": []}  # question call: keep the test about structure only
+    # Question call: one question per skill (the crunch now refuses to finish
+    # with an empty bank, so a realistic success returns at least one).
+    return {"questions": [
+        {"mode": "on_the_go", "prompt": "p", "answer": "a", "explanation": "e"}
+    ]}
 
 
 def main() -> int:
