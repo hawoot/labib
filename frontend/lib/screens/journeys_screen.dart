@@ -24,12 +24,6 @@ class _JourneysScreenState extends State<JourneysScreen> {
   }
 
   Future<void> _load() async {
-    await Api.loadServerUrl();
-    // Native first run: no server address yet — show the setup prompt.
-    if (Api.configurable && !Api.hasServer) {
-      if (mounted) setState(() => _error = null);
-      return;
-    }
     setState(() => _error = null);
     try {
       await Api.ensureUser();
@@ -38,52 +32,6 @@ class _JourneysScreenState extends State<JourneysScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
-  }
-
-  /// Native only: enter/update the backend's public URL. Stored on the device,
-  /// so the URL changing (e.g. on a server migration) just means updating this
-  /// — no rebuild.
-  Future<void> _serverDialog() async {
-    final controller = TextEditingController(text: Api.serverUrl);
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Server address'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('The public URL where your labib backend is running — '
-                'the same address you open the web app at.'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: 'Server URL',
-                hintText: 'https://…',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Save')),
-        ],
-      ),
-    );
-    if (saved != true || controller.text.trim().isEmpty) return;
-    await Api.setServerUrl(controller.text.trim());
-    setState(() {
-      _journeys = null;
-      _error = null;
-    });
-    await _load();
   }
 
   Future<void> _archive(String jid) async {
@@ -282,12 +230,6 @@ class _JourneysScreenState extends State<JourneysScreen> {
               _load();
             },
           ),
-          if (Api.configurable)
-            IconButton(
-              icon: const Icon(Icons.dns_outlined),
-              tooltip: 'Server address',
-              onPressed: _serverDialog,
-            ),
           IconButton(
             icon: const Icon(Icons.person_outline),
             tooltip: 'Your account',
@@ -307,16 +249,6 @@ class _JourneysScreenState extends State<JourneysScreen> {
   }
 
   Widget _body() {
-    if (Api.configurable && !Api.hasServer) {
-      return _Centered(
-        icon: Icons.dns_outlined,
-        text: 'Connect to your labib server\n\n'
-            'Enter the address where your backend is running to get started.',
-        action: FilledButton(
-            onPressed: _serverDialog,
-            child: const Text('Set server address')),
-      );
-    }
     if (_error != null) {
       return _Centered(
         text: 'Something went wrong:\n$_error',
