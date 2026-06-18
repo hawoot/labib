@@ -7,6 +7,7 @@ SM-2-style spaced-repetition schedule.
 from __future__ import annotations
 
 import datetime
+import logging
 import random
 
 from sqlalchemy import or_
@@ -14,6 +15,8 @@ from sqlalchemy.orm import Session
 
 from . import models
 from .llm import complete_json
+
+logger = logging.getLogger(__name__)
 
 # Default mode mix (a future knob). Weights for choosing which question to show.
 MODE_WEIGHTS = {"on_the_go": 0.4, "short_drill": 0.4, "deep_dive": 0.2}
@@ -112,41 +115,67 @@ def build_session(
     return session
 
 
+def _grade_answer(
+    skill: models.Skill | None, question: models.Question, answer: str
+) -> tuple[bool, float, bool, str]:
+    """Grade an answer with the LLM.
+
+    Returns (graded, score, correct, feedback). If the LLM is unavailable or
+    returns junk, we DON'T fail the request — we return graded=False so the
+    caller records the attempt and shows the reference answer instead of losing
+    the student's work. The study loop must survive a flaky model.
+    """
+    try:
+        grade = complete_json(
+            [
+                {
+                    "role": "system",
+                    "content": "You are a supportive tutor grading a student's answer. "
+                    "Output STRICT JSON only.",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"SKILL: {skill.name if skill else ''}\n"
+                        f"QUESTION: {question.prompt}\n"
+                        f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n"
+                        f"STUDENT ANSWER: {answer}\n\n"
+                        'Grade it. Produce JSON {"score": number 0..1, '
+                        '"correct": boolean, "feedback": "1-2 sentences, encouraging, '
+                        'correcting any mistakes"}.'
+                    ),
+                },
+            ],
+            max_tokens=2000,
+        )
+    except Exception as e:  # LLM down, rate-limited, or non-JSON after retries
+        logger.warning("auto-grade unavailable for question %s: %s", question.id, e)
+        return (
+            False,
+            0.0,
+            False,
+            "Your answer was saved, but automatic grading is unavailable right "
+            "now. Compare it with the reference answer below.",
+        )
+
+    score = max(0.0, min(1.0, float(grade.get("score", 0) or 0)))
+    correct = bool(grade.get("correct", score >= CORRECT_THRESHOLD))
+    feedback = str(grade.get("feedback", "")).strip() or (
+        "Looks right." if correct else "Not quite — see the reference answer."
+    )
+    return (True, score, correct, feedback)
+
+
 def mark_attempt(
     db: Session, user: models.User, journey_id: str, question_id: str, answer: str
 ) -> dict:
-    """Grade an answer with the LLM, record the attempt, update mastery + schedule."""
+    """Grade an answer, record the attempt, and (only if graded) update schedule."""
     question = db.get(models.Question, question_id)
     if question is None or question.journey_id != journey_id:
         raise ValueError("Question not found in this journey.")
     skill = db.get(models.Skill, question.skill_id)
 
-    grade = complete_json(
-        [
-            {
-                "role": "system",
-                "content": "You are a supportive tutor grading a student's answer. "
-                "Output STRICT JSON only.",
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"SKILL: {skill.name if skill else ''}\n"
-                    f"QUESTION: {question.prompt}\n"
-                    f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n"
-                    f"STUDENT ANSWER: {answer}\n\n"
-                    'Grade it. Produce JSON {"score": number 0..1, '
-                    '"correct": boolean, "feedback": "1-2 sentences, encouraging, '
-                    'correcting any mistakes"}.'
-                ),
-            },
-        ],
-        max_tokens=2000,
-    )
-    score = float(grade.get("score", 0) or 0)
-    score = max(0.0, min(1.0, score))
-    correct = bool(grade.get("correct", score >= CORRECT_THRESHOLD))
-    feedback = str(grade.get("feedback", ""))
+    graded, score, correct, feedback = _grade_answer(skill, question, answer)
 
     db.add(
         models.Attempt(
@@ -166,11 +195,14 @@ def mark_attempt(
         .filter_by(user_id=user.id, skill_id=question.skill_id)
         .first()
     )
-    if state is not None:
+    # Don't move mastery/schedule on an ungraded attempt — a transient LLM
+    # failure shouldn't corrupt the spaced-repetition state.
+    if state is not None and graded:
         _update_schedule(state, score, correct)
     db.commit()
 
     return {
+        "graded": graded,
         "score": score,
         "correct": correct,
         "feedback": feedback,

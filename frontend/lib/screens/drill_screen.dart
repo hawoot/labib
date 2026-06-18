@@ -160,8 +160,13 @@ class _DrillScreenState extends State<DrillScreen> {
   }
 
   Widget _feedback(Map<String, dynamic> r) {
+    final graded = r['graded'] != false; // older servers omit it -> treat as graded
     final correct = r['correct'] == true;
-    final color = correct ? Colors.green : Colors.deepOrange;
+    final (color, icon, label) = !graded
+        ? (Colors.blueGrey, Icons.bookmark_added_outlined, 'Saved')
+        : correct
+            ? (Colors.green, Icons.check_circle, 'Correct')
+            : (Colors.deepOrange, Icons.cancel, 'Not quite');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -173,10 +178,9 @@ class _DrillScreenState extends State<DrillScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(children: [
-                  Icon(correct ? Icons.check_circle : Icons.cancel,
-                      color: color),
+                  Icon(icon, color: color),
                   const SizedBox(width: 8),
-                  Text(correct ? 'Correct' : 'Not quite',
+                  Text(label,
                       style: TextStyle(
                           color: color, fontWeight: FontWeight.bold)),
                 ]),

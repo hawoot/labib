@@ -110,6 +110,7 @@ class AttemptCreate(BaseModel):
 
 
 class AttemptResultOut(BaseModel):
+    graded: bool = True
     score: float
     correct: bool
     feedback: str
