@@ -10,12 +10,16 @@ the question pass uses as grounding.
 """
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy.orm import Session
 
 from . import models
 from .chunking import chunk_text
 from .llm import complete_json
 from .parsing import parse_document
+
+logger = logging.getLogger(__name__)
 
 # Crunch bounds. The structure pass walks the WHOLE document in windows of
 # STRUCTURE_WINDOW_CHUNKS, appending the unit/skill tree from each window, so
@@ -87,29 +91,36 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
         # Chunks are numbered locally to this window; source_chunks the model
         # returns are resolved against `window` in _persist_units.
         numbered = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(window))
-        structure = complete_json(
-            [
-                {
-                    "role": "system",
-                    "content": "You are a curriculum designer. Break source "
-                    "material into a hierarchy of units and atomic, masterable "
-                    "skills. Output STRICT JSON only.",
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"INTENT: {journey.intent or 'general mastery'}\n\n"
-                        f"MATERIAL (numbered chunks):\n{numbered}\n\n"
-                        'Produce JSON: {"units":[{"title":str,"skills":'
-                        '[{"name":str,"description":str,"source_chunks":[int]}],'
-                        '"units":[...optional nested...]}]}. '
-                        "Keep skills atomic and specific. source_chunks are the "
-                        "chunk numbers each skill draws from."
-                    ),
-                },
-            ],
-            max_tokens=STRUCTURE_MAX_TOKENS,
-        )
+        try:
+            structure = complete_json(
+                [
+                    {
+                        "role": "system",
+                        "content": "You are a curriculum designer. Break source "
+                        "material into a hierarchy of units and atomic, masterable "
+                        "skills. Output STRICT JSON only.",
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"INTENT: {journey.intent or 'general mastery'}\n\n"
+                            f"MATERIAL (numbered chunks):\n{numbered}\n\n"
+                            'Produce JSON: {"units":[{"title":str,"skills":'
+                            '[{"name":str,"description":str,"source_chunks":[int]}],'
+                            '"units":[...optional nested...]}]}. '
+                            "Keep skills atomic and specific. source_chunks are the "
+                            "chunk numbers each skill draws from."
+                        ),
+                    },
+                ],
+                max_tokens=STRUCTURE_MAX_TOKENS,
+            )
+        except Exception as e:  # one window failing shouldn't sink the whole crunch
+            logger.warning(
+                "structure pass failed for window %d/%d: %s", w + 1, len(windows), e
+            )
+            _set(db, job, progress=30 + int(28 * (w + 1) / len(windows)))
+            continue
         units = structure.get("units", []) or []
         skills += _persist_units(db, journey, version, units, window, None, unit_ordinal)
         unit_ordinal += len(units)
@@ -118,35 +129,44 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
 
     db.flush()
     if not skills:
-        raise ValueError("The structure pass produced no skills.")
+        raise ValueError(
+            "The structure pass produced no skills — the AI service may be "
+            "unavailable. Try crunching again."
+        )
 
     # 3) Question pass: a small bank per skill -----------------------------
     _set(db, job, phase="questions", progress=60)
     total = len(skills)
+    questions_made = 0
     for n, skill in enumerate(skills):
         prov_text = _provenance_text(db, skill)
-        result = complete_json(
-            [
-                {
-                    "role": "system",
-                    "content": "You write practice questions grounded in the given "
-                    "source. Output STRICT JSON only.",
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"INTENT: {journey.intent or 'general mastery'}\n"
-                        f"SKILL: {skill.name}\nDESCRIPTION: {skill.description}\n"
-                        f"SOURCE:\n{prov_text}\n\n"
-                        'Produce JSON {"questions":[{"mode":'
-                        '"on_the_go|short_drill|deep_dive","prompt":str,'
-                        '"answer":str,"explanation":str}]}. '
-                        f"{QUESTION_MODES_HINT} Keep answers concise."
-                    ),
-                },
-            ],
-            max_tokens=QUESTION_MAX_TOKENS,
-        )
+        try:
+            result = complete_json(
+                [
+                    {
+                        "role": "system",
+                        "content": "You write practice questions grounded in the given "
+                        "source. Output STRICT JSON only.",
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"INTENT: {journey.intent or 'general mastery'}\n"
+                            f"SKILL: {skill.name}\nDESCRIPTION: {skill.description}\n"
+                            f"SOURCE:\n{prov_text}\n\n"
+                            'Produce JSON {"questions":[{"mode":'
+                            '"on_the_go|short_drill|deep_dive","prompt":str,'
+                            '"answer":str,"explanation":str}]}. '
+                            f"{QUESTION_MODES_HINT} Keep answers concise."
+                        ),
+                    },
+                ],
+                max_tokens=QUESTION_MAX_TOKENS,
+            )
+        except Exception as e:  # skip this skill's questions, keep the rest
+            logger.warning("question pass failed for skill %s: %s", skill.id, e)
+            _set(db, job, progress=60 + int(35 * (n + 1) / total))
+            continue
         for q in result.get("questions", []):
             if not isinstance(q, dict) or not q.get("prompt"):
                 continue
@@ -165,7 +185,16 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
                     curriculum_version=version,
                 )
             )
+            questions_made += 1
         _set(db, job, progress=60 + int(35 * (n + 1) / total))
+
+    if questions_made == 0:
+        # A "ready" journey with nothing to drill is a dead end — fail so the
+        # user can retry rather than land in an empty session.
+        raise ValueError(
+            "No questions could be generated — the AI service may be "
+            "unavailable. Try crunching again."
+        )
 
     journey.status = "ready"
     _set(db, job, phase="done", progress=100)
