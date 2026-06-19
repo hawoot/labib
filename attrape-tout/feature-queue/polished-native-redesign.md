@@ -9,9 +9,16 @@ up. **Direction chosen: "Polished & native."**
 ---
 
 ## Direction
-- Polished consumer-app feel: custom color theme, rounded cards, smooth
-  transitions/animations, a proper home/onboarding, app-shell navigation —
-  less "web form."
+- **Mobile-app-first.** NOT a polished website — a sleek, modern, native-feeling
+  **mobile app**, designed phone-first. Mobile layouts & touch targets, app
+  navigation patterns (bottom nav / gestures, not web menus), real motion &
+  transitions, native-feeling components. On desktop, the web build is the same
+  mobile app centered in a column — not a desktop website. The phone is primary.
+- Custom color theme, rounded cards, smooth animations, proper onboarding.
+- **Media woven in** as first-class (see media-capture-and-voice.md).
+- **Gamification-aware from the start** (see gamification.md): design reserves
+  space + a visual language for streaks / XP / progress rings / rewards so the
+  mechanics can be added in phases without reworking these screens.
 
 ## Scope (screens to redesign)
 - Journey list (home) — start here; highest visibility.
