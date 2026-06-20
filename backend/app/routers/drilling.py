@@ -8,10 +8,13 @@ from .. import drilling, models
 from ..db import get_db
 from ..deps import get_current_user
 from ..schemas import (
+    AssistIn,
+    AssistOut,
     AttemptCreate,
     AttemptResultOut,
     ProgressItem,
     ProgressOut,
+    RevealOut,
     SessionItem,
     SessionOut,
 )
@@ -55,6 +58,37 @@ def submit_attempt(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return AttemptResultOut(**result)
+
+
+@router.post("/questions/{question_id}/assist", response_model=AssistOut)
+def assist(
+    journey_id: str,
+    question_id: str,
+    payload: AssistIn,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    get_owned_journey(journey_id, user, db)
+    try:
+        text = drilling.assist(db, journey_id, question_id, payload.kind)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return AssistOut(text=text)
+
+
+@router.post("/questions/{question_id}/reveal", response_model=RevealOut)
+def reveal(
+    journey_id: str,
+    question_id: str,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    get_owned_journey(journey_id, user, db)
+    try:
+        result = drilling.reveal_answer(db, user, journey_id, question_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return RevealOut(**result)
 
 
 @router.get("/progress", response_model=ProgressOut)

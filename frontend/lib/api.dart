@@ -260,4 +260,13 @@ class Api {
 
   static Future<Map<String, dynamic>> getProgress(String jid) async =>
       _asMap(await _get('/journeys/$jid/progress'));
+
+  /// In-question help: 'hint' (how to approach this) or 'basics' (step back).
+  static Future<String> assist(String jid, String questionId, String kind) async =>
+      _asMap(await _post('/journeys/$jid/questions/$questionId/assist',
+          {'kind': kind}))['text'] as String;
+
+  /// Give up: records the question as not-done and returns the answer.
+  static Future<Map<String, dynamic>> reveal(String jid, String questionId) async =>
+      _asMap(await _post('/journeys/$jid/questions/$questionId/reveal'));
 }
