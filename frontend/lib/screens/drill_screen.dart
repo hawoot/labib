@@ -39,12 +39,16 @@ class _DrillScreenState extends State<DrillScreen> {
   bool _submitting = false;
   String? _error;
 
+  String? _assistText; // hint / basics guidance shown under the question
+  bool _assisting = false;
+
   /// Current intensity — starts from the launcher choice but can be switched
   /// mid-session via the pill; the new value persists as the default.
   String? _intensity;
 
   String get _intensityLabel => switch (_intensity) {
         'on_the_go' => 'On the go',
+        'short_drill' => 'Short drill',
         'deep_dive' => 'Deep dive',
         _ => 'Mixed',
       };
@@ -85,6 +89,7 @@ class _DrillScreenState extends State<DrillScreen> {
         _result = null;
         _answer.clear();
         _image = null;
+        _assistText = null;
       });
     } catch (e) {
       setState(() => _error = '$e');
@@ -124,6 +129,7 @@ class _DrillScreenState extends State<DrillScreen> {
       _result = null;
       _answer.clear();
       _image = null;
+      _assistText = null;
     });
   }
 
@@ -133,7 +139,51 @@ class _DrillScreenState extends State<DrillScreen> {
       _result = null;
       _answer.clear();
       _image = null;
+      _assistText = null;
     });
+  }
+
+  /// "Help me approach this" / "I'm missing the basics" — best-effort guidance.
+  Future<void> _assist(String kind) async {
+    final item = _items![_index] as Map<String, dynamic>;
+    setState(() => _assisting = true);
+    try {
+      final text = await Api.assist(
+          widget.journeyId, item['question_id'] as String, kind);
+      if (mounted) setState(() => _assistText = text);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Couldn’t get help: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _assisting = false);
+    }
+  }
+
+  /// "I'm stuck — show the answer." Marked as not done (a miss).
+  Future<void> _reveal() async {
+    final item = _items![_index] as Map<String, dynamic>;
+    setState(() => _submitting = true);
+    try {
+      final r =
+          await Api.reveal(widget.journeyId, item['question_id'] as String);
+      HapticFeedback.lightImpact();
+      setState(() {
+        _result = {
+          'graded': true,
+          'correct': false,
+          'feedback': 'Marked as not done — review the answer below.',
+          'answer': r['answer'],
+          'explanation': r['explanation'],
+          'revealed': true,
+        };
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   @override
@@ -216,8 +266,14 @@ class _DrillScreenState extends State<DrillScreen> {
           image: _image,
           onImageChanged: (img) => setState(() => _image = img),
         ),
+        if (result == null && _assistText != null) ...[
+          const SizedBox(height: Space.lg),
+          _AssistCard(text: _assistText!),
+        ],
         const SizedBox(height: Space.lg),
-        if (result == null)
+        if (result == null) ...[
+          _HelpRow(busy: _assisting || _submitting, onAssist: _assist, onReveal: _reveal),
+          const SizedBox(height: Space.md),
           Row(
             children: [
               OutlinedButton(
@@ -238,8 +294,8 @@ class _DrillScreenState extends State<DrillScreen> {
                 ),
               ),
             ],
-          )
-        else
+          ),
+        ] else
           _feedback(result),
       ],
     );
@@ -341,7 +397,131 @@ class _DrillScreenState extends State<DrillScreen> {
   }
 }
 
-/// The intensity pill — tap to switch On the go / Deep dive mid-session.
+/// The three in-question help options.
+class _HelpRow extends StatelessWidget {
+  const _HelpRow({
+    required this.busy,
+    required this.onAssist,
+    required this.onReveal,
+  });
+
+  final bool busy;
+  final ValueChanged<String> onAssist;
+  final VoidCallback onReveal;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _HelpButton(
+          icon: Icons.lightbulb_outline,
+          title: 'Help me approach this',
+          subtitle: 'I’ve got the basics but not this problem',
+          onTap: busy ? null : () => onAssist('hint'),
+        ),
+        const SizedBox(height: Space.sm),
+        _HelpButton(
+          icon: Icons.replay,
+          title: 'I’m missing the basics',
+          subtitle: 'Step back and explain what I need first',
+          onTap: busy ? null : () => onAssist('basics'),
+        ),
+        const SizedBox(height: Space.sm),
+        _HelpButton(
+          icon: Icons.visibility_outlined,
+          title: 'I’m stuck — show the answer',
+          subtitle: 'Marked as not done',
+          onTap: busy ? null : onReveal,
+        ),
+      ],
+    );
+  }
+}
+
+class _HelpButton extends StatelessWidget {
+  const _HelpButton({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(Radii.control),
+      child: Container(
+        padding:
+            const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.sm),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(Radii.control),
+          border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: scheme.onSurfaceVariant),
+            const SizedBox(width: Space.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  Text(subtitle,
+                      style: TextStyle(
+                          fontSize: 11.5, color: scheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right,
+                size: 18, color: scheme.onSurfaceVariant.withValues(alpha: 0.6)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Inline guidance returned by "approach help" / "missing the basics".
+class _AssistCard extends StatelessWidget {
+  const _AssistCard({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(Space.lg),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.card),
+        color: brandSeed.withValues(alpha: 0.08),
+        border: Border.all(color: brandSeed.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.lightbulb, size: 18, color: brandSeed),
+          const SizedBox(width: Space.sm),
+          Expanded(
+            child: Text(text,
+                style: TextStyle(color: scheme.onSurface, height: 1.4)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The intensity pill — tap to switch intensity mid-session.
 class _IntensitySwitcher extends StatelessWidget {
   const _IntensitySwitcher({
     required this.label,
@@ -362,6 +542,7 @@ class _IntensitySwitcher extends StatelessWidget {
           borderRadius: BorderRadius.circular(Radii.control)),
       itemBuilder: (_) => [
         _item('on_the_go', '🎧  On the go'),
+        _item('short_drill', '⚡  Short drill'),
         _item('deep_dive', '✍️  Deep dive'),
       ],
       child: Container(

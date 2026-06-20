@@ -56,39 +56,49 @@ class _AnswerInputState extends State<AnswerInput> {
       setState(() => _listening = false);
       return;
     }
-    if (!_speechReady) {
-      _speechReady = await _speech.initialize(
-        onStatus: (s) {
-          if (s == 'done' || s == 'notListening') {
+    try {
+      if (!_speechReady) {
+        _speechReady = await _speech.initialize(
+          onStatus: (s) {
+            if (s == 'done' || s == 'notListening') {
+              if (mounted) setState(() => _listening = false);
+            }
+          },
+          onError: (e) {
             if (mounted) setState(() => _listening = false);
-          }
-        },
-        onError: (_) {
-          if (mounted) setState(() => _listening = false);
-        },
-      );
-    }
-    if (!_speechReady) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Microphone isn’t available here.')),
+            _toast('Voice error: ${e.errorMsg}. '
+                'On the web this needs Chrome over HTTPS.');
+          },
         );
       }
-      return;
+      if (!_speechReady) {
+        _toast('Microphone isn’t available here. On the web, voice needs '
+            'Chrome served over HTTPS and mic permission.');
+        return;
+      }
+      HapticFeedback.selectionClick();
+      final existing = widget.controller.text;
+      _basePrefix =
+          existing.isEmpty || existing.endsWith(' ') ? existing : '$existing ';
+      setState(() => _listening = true);
+      await _speech.listen(
+        onResult: (r) {
+          widget.controller.text = '$_basePrefix${r.recognizedWords}';
+          widget.controller.selection = TextSelection.fromPosition(
+            TextPosition(offset: widget.controller.text.length),
+          );
+        },
+        listenOptions: SpeechListenOptions(listenMode: ListenMode.dictation),
+      );
+    } catch (e) {
+      if (mounted) setState(() => _listening = false);
+      _toast('Couldn’t start voice: $e');
     }
-    HapticFeedback.selectionClick();
-    final existing = widget.controller.text;
-    _basePrefix = existing.isEmpty || existing.endsWith(' ') ? existing : '$existing ';
-    setState(() => _listening = true);
-    await _speech.listen(
-      onResult: (r) {
-        widget.controller.text = '$_basePrefix${r.recognizedWords}';
-        widget.controller.selection = TextSelection.fromPosition(
-          TextPosition(offset: widget.controller.text.length),
-        );
-      },
-      listenOptions: SpeechListenOptions(listenMode: ListenMode.dictation),
-    );
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<void> _pickImage(ImageSource source) async {

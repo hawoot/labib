@@ -122,6 +122,21 @@ class AttemptResultOut(BaseModel):
     mastery: float | None
 
 
+class AssistIn(BaseModel):
+    # 'hint'   -> how to approach THIS problem, without giving the answer
+    # 'basics' -> step back and explain the prerequisite basics
+    kind: str = "hint"
+
+
+class AssistOut(BaseModel):
+    text: str
+
+
+class RevealOut(BaseModel):
+    answer: str | None
+    explanation: str | None
+
+
 class ProgressItem(BaseModel):
     skill_id: str
     name: str
