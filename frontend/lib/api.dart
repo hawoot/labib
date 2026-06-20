@@ -49,6 +49,14 @@ class Api {
     await _reauth();
   }
 
+  /// Whether this device already has an account, without creating one. Lets the
+  /// app show the landing screen to first-time visitors and skip straight to
+  /// their journeys for returning ones.
+  static Future<bool> hasAccount() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('user_id') != null;
+  }
+
   /// Switch to the account identified by [code]. Returns false if no such
   /// account exists; throws on other failures.
   static Future<bool> loginWithCode(String code) async {
