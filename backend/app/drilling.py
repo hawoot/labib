@@ -25,8 +25,9 @@ MODE_WEIGHTS = {"on_the_go": 0.4, "short_drill": 0.4, "deep_dive": 0.2}
 # allowed. "On the go" keeps it light and quick — nothing that needs paper;
 # "Deep dive" leans into harder problem-solving. Unknown/None = the full mix.
 INTENSITY_MODES = {
-    "on_the_go": {"on_the_go", "short_drill"},
-    "deep_dive": {"deep_dive", "short_drill"},
+    "on_the_go": {"on_the_go"},
+    "short_drill": {"short_drill"},
+    "deep_dive": {"deep_dive"},
 }
 DEFAULT_SESSION_SIZE = 8
 CORRECT_THRESHOLD = 0.6
@@ -252,6 +253,82 @@ def mark_attempt(
         "explanation": question.explanation,
         "mastery": round(state.mastery, 3) if state else None,
     }
+
+
+def assist(
+    db: Session, journey_id: str, question_id: str, kind: str
+) -> str:
+    """In-question help. 'hint' nudges how to approach this problem without
+    giving the answer; 'basics' steps back to the prerequisite ideas. Returns
+    plain guidance text (falls back gracefully if the LLM is unavailable)."""
+    from .llm import get_llm
+
+    question = db.get(models.Question, question_id)
+    if question is None or question.journey_id != journey_id:
+        raise ValueError("Question not found in this journey.")
+    skill = db.get(models.Skill, question.skill_id)
+
+    if kind == "basics":
+        ask = (
+            "The student feels they're missing the fundamentals. Step back and "
+            "explain, in a few short sentences, the prerequisite ideas they need "
+            "to understand BEFORE this question. Do NOT solve the question."
+        )
+    else:
+        ask = (
+            "The student has the basics but doesn't know how to approach THIS "
+            "problem. Give a short nudge on how to start and which method to use. "
+            "Do NOT give the final answer."
+        )
+    try:
+        return get_llm().complete(
+            [
+                {"role": "system", "content": "You are a concise, encouraging tutor."},
+                {
+                    "role": "user",
+                    "content": (
+                        f"SKILL: {skill.name if skill else ''}\n"
+                        f"QUESTION: {question.prompt}\n\n{ask}"
+                    ),
+                },
+            ],
+            max_tokens=400,
+        ).strip() or "Try breaking the problem into smaller steps."
+    except Exception as e:  # noqa: BLE001 - help is best-effort
+        logger.warning("assist unavailable for %s: %s", question_id, e)
+        return "Help isn't available right now — try breaking it into smaller steps."
+
+
+def reveal_answer(
+    db: Session, user: models.User, journey_id: str, question_id: str
+) -> dict:
+    """Give up on a question: record it as 'not done' (a miss that moves the
+    schedule) and return the reference answer + explanation."""
+    question = db.get(models.Question, question_id)
+    if question is None or question.journey_id != journey_id:
+        raise ValueError("Question not found in this journey.")
+
+    db.add(
+        models.Attempt(
+            user_id=user.id,
+            journey_id=journey_id,
+            skill_id=question.skill_id,
+            question_id=question_id,
+            user_answer="(revealed — not done)",
+            score=0.0,
+            correct=False,
+            feedback="You asked to see the answer.",
+        )
+    )
+    state = (
+        db.query(models.SkillState)
+        .filter_by(user_id=user.id, skill_id=question.skill_id)
+        .first()
+    )
+    if state is not None:
+        _update_schedule(state, 0.0, False)
+    db.commit()
+    return {"answer": question.answer, "explanation": question.explanation}
 
 
 def _update_schedule(state: models.SkillState, score: float, correct: bool) -> None:
