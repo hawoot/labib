@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>labib · the Go flow</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#26303c;
+    --ink:#e8edf3; --mut:#8b97a7; --acc:#5eead4; --acc2:#38bdf8;
+    --warm:#fbbf24; --ok:#4ade80;
+  }
+  *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  body{margin:0;background:#070a0e;color:var(--ink);
+    display:flex;gap:28px;flex-wrap:wrap;justify-content:center;
+    align-items:flex-start;padding:40px 20px}
+  .cap{width:100%;text-align:center;color:var(--mut);font-size:13px;letter-spacing:.18em;
+    text-transform:uppercase;margin-bottom:6px}
+  .phone{width:300px;height:620px;background:var(--bg);border-radius:34px;
+    border:1px solid var(--line);overflow:hidden;position:relative;
+    box-shadow:0 30px 80px rgba(0,0,0,.55)}
+  .scr{position:absolute;inset:0;display:flex;flex-direction:column;padding:20px 18px}
+  .lbl{position:absolute;top:14px;left:0;right:0;text-align:center;font-size:11px;
+    color:var(--mut);letter-spacing:.14em;text-transform:uppercase;z-index:5}
+  .pad{height:18px}
+  .row{display:flex;align-items:center;justify-content:space-between}
+  .brand{font-weight:800;font-size:20px;letter-spacing:-.5px}
+  .brand span{color:var(--acc)}
+  .av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--acc2))}
+
+  /* Home hero */
+  .hero{margin-top:16px;background:linear-gradient(160deg,#13262a,#0f1822);
+    border:1px solid var(--line);border-radius:22px;padding:18px}
+  .due{font-size:34px;font-weight:800;letter-spacing:-1px}
+  .due small{font-size:14px;color:var(--mut);font-weight:500}
+  .streak{display:inline-flex;align-items:center;gap:6px;margin-top:8px;
+    background:rgba(251,191,36,.12);color:var(--warm);padding:4px 10px;
+    border-radius:999px;font-size:12px;font-weight:600}
+  .go{margin-top:16px;width:100%;border:0;border-radius:16px;padding:16px;
+    font-size:17px;font-weight:800;color:#06231f;cursor:pointer;
+    background:linear-gradient(135deg,var(--acc),var(--acc2));
+    box-shadow:0 10px 28px rgba(94,234,212,.25)}
+
+  .sub{margin:22px 2px 10px;color:var(--mut);font-size:12px;
+    letter-spacing:.12em;text-transform:uppercase}
+  .jrn{display:flex;align-items:center;gap:14px;background:var(--panel);
+    border:1px solid var(--line);border-radius:16px;padding:13px;margin-bottom:10px}
+  .ring{width:42px;height:42px;border-radius:50%;flex:none;
+    background:conic-gradient(var(--acc) var(--p),#22303c 0);
+    display:flex;align-items:center;justify-content:center}
+  .ring::after{content:"";width:30px;height:30px;border-radius:50%;background:var(--panel)}
+  .ring b{position:absolute;font-size:11px;font-weight:700}
+  .jt{font-weight:700;font-size:15px}
+  .jm{color:var(--mut);font-size:12px;margin-top:2px}
+
+  /* bottom nav */
+  .nav{position:absolute;bottom:0;left:0;right:0;height:62px;background:#0b0f14ee;
+    border-top:1px solid var(--line);display:flex;justify-content:space-around;
+    align-items:center;backdrop-filter:blur(8px)}
+  .nav div{display:flex;flex-direction:column;align-items:center;gap:3px;
+    font-size:10px;color:var(--mut)}
+  .nav .on{color:var(--acc)}
+  .nav i{width:18px;height:18px;border-radius:5px;background:currentColor;opacity:.85}
+
+  /* launcher sheet */
+  .dim{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--panel);
+    border-top-left-radius:26px;border-top-right-radius:26px;padding:20px 18px 26px;
+    border:1px solid var(--line)}
+  .grab{width:40px;height:4px;border-radius:9px;background:#3a4654;margin:0 auto 16px}
+  .sh-t{font-size:13px;color:var(--mut);margin-bottom:10px}
+  .modes{display:flex;gap:10px;margin-bottom:8px}
+  .mode{flex:1;border:1px solid var(--line);border-radius:16px;padding:14px;
+    background:var(--panel2);cursor:pointer}
+  .mode.sel{border-color:var(--acc);background:rgba(94,234,212,.08)}
+  .mi{font-size:22px}
+  .mn{font-weight:700;font-size:14px;margin-top:8px}
+  .md{color:var(--mut);font-size:11px;margin-top:3px;line-height:1.35}
+  .chip{display:inline-flex;align-items:center;gap:7px;margin-top:14px;
+    background:var(--panel2);border:1px solid var(--line);color:var(--ink);
+    padding:9px 13px;border-radius:999px;font-size:13px;cursor:pointer}
+  .chip b{color:var(--acc);font-weight:700}
+  .let{margin-top:18px;width:100%;border:0;border-radius:16px;padding:17px;
+    font-size:18px;font-weight:800;color:#06231f;cursor:pointer;
+    background:linear-gradient(135deg,var(--acc),var(--acc2))}
+
+  /* drill */
+  .top{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+  .pill{font-size:11px;color:var(--acc);background:rgba(94,234,212,.1);
+    border:1px solid #2b4a45;padding:5px 11px;border-radius:999px;font-weight:600}
+  .x{color:var(--mut);font-size:20px}
+  .bar{height:5px;background:#22303c;border-radius:9px;margin-top:16px;overflow:hidden}
+  .bar i{display:block;height:100%;width:40%;background:var(--acc)}
+  .q{margin-top:40px;font-size:13px;color:var(--mut);letter-spacing:.1em;text-transform:uppercase}
+  .qt{font-size:26px;font-weight:800;line-height:1.25;margin-top:12px;letter-spacing:-.4px}
+  .mic{margin:34px auto 10px;width:96px;height:96px;border-radius:50%;
+    background:radial-gradient(circle at 50% 40%,#1c2b30,#101820);
+    border:1px solid #2b4a45;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 0 0 0 rgba(94,234,212,.4);animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(94,234,212,.35)}
+    70%{box-shadow:0 0 0 22px rgba(94,234,212,0)}100%{box-shadow:0 0 0 0 rgba(94,234,212,0)}}
+  .mic b{font-size:34px}
+  .hint{text-align:center;color:var(--mut);font-size:13px}
+  .heard{text-align:center;margin-top:18px;font-size:18px;font-weight:600;color:var(--ink)}
+  .heard span{color:var(--acc)}
+  .actions{position:absolute;bottom:26px;left:18px;right:18px;display:flex;gap:12px}
+  .skip{flex:1;border:1px solid var(--line);background:var(--panel);color:var(--mut);
+    border-radius:15px;padding:15px;font-size:15px;font-weight:600;cursor:pointer}
+  .next{flex:2;border:0;border-radius:15px;padding:15px;font-size:15px;font-weight:800;
+    color:#06231f;background:linear-gradient(135deg,var(--acc),var(--acc2));cursor:pointer}
+</style>
+</head>
+<body>
+  <div class="cap">labib — the “Let’s go” flow</div>
+
+  <!-- 1. HOME -->
+  <div class="phone">
+    <div class="lbl">Home</div>
+    <div class="scr" style="padding-top:34px">
+      <div class="row">
+        <div class="brand">la<span>bib</span></div>
+        <div class="av"></div>
+      </div>
+      <div class="hero">
+        <div class="due">12 <small>to revisit today</small></div>
+        <div class="streak">🔥 6-day streak</div>
+        <button class="go">Let’s go →</button>
+      </div>
+      <div class="sub">Your journeys</div>
+      <div class="jrn"><div class="ring" style="--p:74%"><b>74</b></div>
+        <div><div class="jt">Calculus</div><div class="jm">5 to revisit · strong</div></div></div>
+      <div class="jrn"><div class="ring" style="--p:48%"><b>48</b></div>
+        <div><div class="jt">Quantum physics</div><div class="jm">4 to revisit · building</div></div></div>
+      <div class="jrn"><div class="ring" style="--p:31%"><b>31</b></div>
+        <div><div class="jt">Linear algebra</div><div class="jm">3 to revisit · new</div></div></div>
+    </div>
+    <div class="nav">
+      <div class="on"><i></i>Home</div><div><i></i>Progress</div><div><i></i>Profile</div>
+    </div>
+  </div>
+
+  <!-- 2. LET'S GO LAUNCHER -->
+  <div class="phone">
+    <div class="lbl">tap “Let’s go”</div>
+    <div class="scr" style="padding-top:34px;filter:brightness(.5)">
+      <div class="row"><div class="brand">la<span>bib</span></div><div class="av"></div></div>
+      <div class="hero"><div class="due">12 <small>to revisit today</small></div></div>
+    </div>
+    <div class="dim"></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <div class="sh-t">How do you want it right now?</div>
+      <div class="modes">
+        <div class="mode sel"><div class="mi">🎧</div><div class="mn">On the go</div>
+          <div class="md">Quick recall. Just speak — no typing.</div></div>
+        <div class="mode"><div class="mi">✍️</div><div class="mn">Deep dive</div>
+          <div class="md">Real problems. For when you’ve got a desk.</div></div>
+      </div>
+      <div class="chip">🎯 <span>Across <b>all journeys</b></span> · tap to narrow ▾</div>
+      <button class="let">Let’s go →</button>
+    </div>
+  </div>
+
+  <!-- 3. ON-THE-GO DRILL -->
+  <div class="phone">
+    <div class="lbl">On-the-go drill (voice)</div>
+    <div class="scr" style="padding-top:34px">
+      <div class="top">
+        <div class="pill">🎧 On the go · Calculus</div>
+        <div class="x">✕</div>
+      </div>
+      <div class="bar"><i></i></div>
+      <div class="q">Recall</div>
+      <div class="qt">What’s the derivative of sin(x)?</div>
+      <div class="mic"><b>🎙️</b></div>
+      <div class="hint">Listening… just say it</div>
+      <div class="heard">“…<span>cosine x</span>”</div>
+    </div>
+    <div class="actions">
+      <button class="skip">Skip ↦</button>
+      <button class="next">Check</button>
+    </div>
+  </div>
+</body>
+</html>
