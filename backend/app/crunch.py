@@ -35,9 +35,22 @@ STRUCTURE_MAX_TOKENS = 16000
 QUESTION_MAX_TOKENS = 4000
 
 QUESTION_MODES_HINT = (
-    "Include about 2 'on_the_go' (quick recall), 1 'short_drill' (focused), and "
-    "1 'deep_dive' (applied/deeper — problem-solving for factual material, or "
-    "discussion/analysis for narrative)."
+    "Generate a spread of modes per skill — about 2 'on_the_go', 1 'short_drill', "
+    "1 'deep_dive'. Each mode has a strict meaning:\n"
+    "- on_the_go: ZERO logistics. Answerable entirely out loud, hands-free, while "
+    "walking down the street — no paper, no screen, no keyboard, no written "
+    "calculation. Quick recall, definitions, concepts, intuition, or 'why / how "
+    "would you approach this'. For technical subjects keep it conceptual and "
+    "verbal (e.g. 'what does integration by parts let you trade off?') and NEVER "
+    "ask to compute or derive something on paper. For narrative material, recall "
+    "or briefly discuss plot, characters, or themes.\n"
+    "- short_drill: one focused, concrete rep — a single application answerable in "
+    "a minute or two. A little written/typed working is fine if the subject needs "
+    "it (a line of algebra, a short snippet), but keep it small and quick.\n"
+    "- deep_dive: the stretch question requiring real engagement — multi-step "
+    "problem-solving for technical material (may require paper or a keyboard, which "
+    "is expected and fine) or extended analysis / discussion for narrative material "
+    "(can be fully conversational)."
 )
 
 

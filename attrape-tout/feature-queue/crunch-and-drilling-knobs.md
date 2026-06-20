@@ -8,12 +8,21 @@ knob is user-adjustable per journey.
 
 ---
 
-## Knob 1 — Question modes (rename + mix)
-- **Modes:** *On the Go*, *Short Drill*, *Deep Dive*.
-  - "Deep Dive" replaces the old "Problem" mode and **generalises** it:
-    problem-solving for a textbook, long discussion / analysis for a novel.
-- **Default mix:** ~**40% On the Go / 40% Short Drill / 20% Deep Dive**.
-- User can change the mix per journey.
+## Knob 1 — Question modes (rename + mix)  ✅ *definitions implemented in crunch*
+- **Modes** (confirmed definitions — drive what the crunch generates):
+  - **On the Go** — *zero logistics.* Answerable entirely out loud, hands-free,
+    while walking: no paper, screen, keyboard, or written calculation. Quick
+    recall / concepts / intuition / "how would you approach". Technical subjects
+    stay conceptual & verbal (never "compute X"); narrative = recall/discuss.
+  - **Short Drill** — one focused, concrete rep; answerable in a minute or two.
+    Light written/typed working allowed if the subject needs it, but small.
+  - **Deep Dive** — the stretch: multi-step problem-solving (technical — may need
+    paper/keyboard, that's expected) or extended analysis/discussion (narrative —
+    can be conversational). Replaces & generalises the old "Problem" mode.
+- **Default mix:** ~**2 On the Go / 1 Short Drill / 1 Deep Dive** per skill.
+- *Re-crunch* an existing journey to regenerate questions under these definitions;
+  new journeys get them automatically.
+- *Still TODO:* let the user change the mix per journey.
 
 ## Knob 2 — Depth (how deeply to master the material)
 - A level from **broad overview** → **full mastery**.
