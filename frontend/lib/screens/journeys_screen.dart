@@ -8,6 +8,7 @@ import '../widgets/pressable.dart';
 import '../widgets/skeleton.dart';
 import 'drill_screen.dart';
 import 'journey_screen.dart';
+import 'lets_go_sheet.dart';
 
 /// Magenta companion to the brand violet — used only for the "today" gradient
 /// accents (hero, Let's go), matching the landing screen.
@@ -62,41 +63,44 @@ class _JourneysScreenState extends State<JourneysScreen> {
     }
   }
 
-  /// "Let's go": start the most-pressing session right now. Picks the active
-  /// journey with the most due skills; if nothing's due, the first journey
-  /// that's ready to drill. (A true cross-journey session comes later.)
-  void _letsGo() {
+  /// Drillable journeys: ready, or already have skills to practise.
+  List<Map<String, dynamic>> get _drillable => [
+        for (final j in _journeys ?? const [])
+          if (j['status'] == 'ready' ||
+              ((j['progress'] as Map<String, dynamic>?)?['skill_count'] as num?
+                      ?? 0) >
+                  0)
+            j
+      ];
+
+  /// "Let's go": open the launcher (intensity + scope), then drill the chosen
+  /// journey with the chosen intensity. (A true cross-journey session comes
+  /// later; for now scope picks one journey.)
+  Future<void> _letsGo() async {
     HapticFeedback.selectionClick();
-    final active = _journeys ?? const [];
-    Map<String, dynamic>? best;
-    var bestDue = -1;
-    for (final j in active) {
-      final p = j['progress'] as Map<String, dynamic>?;
-      final due = (p?['due'] as num?)?.toInt() ?? 0;
-      final ready = j['status'] == 'ready' || (p?['skill_count'] as num? ?? 0) > 0;
-      if (!ready) continue;
-      if (due > bestDue) {
-        bestDue = due;
-        best = j;
-      }
-    }
-    if (best == null) {
+    final drillable = _drillable;
+    if (drillable.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Add material to a journey first, then come back to drill.'),
+          content:
+              Text('Add material to a journey first, then come back to drill.'),
         ),
       );
       return;
     }
-    Navigator.push(
+    final choice = await showLetsGoSheet(context, drillable);
+    if (choice == null || !mounted) return;
+    await Navigator.push(
       context,
       AppPageRoute(
         builder: (_) => DrillScreen(
-          journeyId: best!['id'] as String,
-          title: best['title'] as String? ?? 'Journey',
+          journeyId: choice.journeyId,
+          title: choice.title,
+          intensity: choice.intensity,
         ),
       ),
-    ).then((_) => _load());
+    );
+    await _load();
   }
 
   Future<void> _archive(String jid) async {

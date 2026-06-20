@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 
 # Default mode mix (a future knob). Weights for choosing which question to show.
 MODE_WEIGHTS = {"on_the_go": 0.4, "short_drill": 0.4, "deep_dive": 0.2}
+
+# Intensity (chosen in the "Let's go" launcher) maps to which question modes are
+# allowed. "On the go" keeps it light and quick — nothing that needs paper;
+# "Deep dive" leans into harder problem-solving. Unknown/None = the full mix.
+INTENSITY_MODES = {
+    "on_the_go": {"on_the_go", "short_drill"},
+    "deep_dive": {"deep_dive", "short_drill"},
+}
 DEFAULT_SESSION_SIZE = 8
 CORRECT_THRESHOLD = 0.6
 MASTERY_ALPHA = 0.4
@@ -64,7 +72,9 @@ def ensure_enrollment(db: Session, user: models.User, journey: models.Journey) -
     db.commit()
 
 
-def _pick_question(db: Session, skill_id: str, version: int) -> models.Question | None:
+def _pick_question(
+    db: Session, skill_id: str, version: int, allowed_modes: set[str] | None = None
+) -> models.Question | None:
     questions = (
         db.query(models.Question)
         .filter_by(skill_id=skill_id, curriculum_version=version)
@@ -72,15 +82,30 @@ def _pick_question(db: Session, skill_id: str, version: int) -> models.Question 
     )
     if not questions:
         return None
+    # If an intensity was chosen, prefer questions in its allowed modes — but
+    # fall back to the full set rather than show nothing for that skill.
+    if allowed_modes:
+        in_mode = [q for q in questions if q.mode in allowed_modes]
+        if in_mode:
+            questions = in_mode
     # Weight by the default mode mix, falling back to a uniform pick.
     weights = [MODE_WEIGHTS.get(q.mode, 0.1) for q in questions]
     return random.choices(questions, weights=weights, k=1)[0]
 
 
 def build_session(
-    db: Session, user: models.User, journey: models.Journey, limit: int
+    db: Session,
+    user: models.User,
+    journey: models.Journey,
+    limit: int,
+    intensity: str | None = None,
 ) -> list[dict]:
-    """Return up to `limit` questions to drill now: due skills first, then by lowest mastery."""
+    """Return up to `limit` questions to drill now: due skills first, then by lowest mastery.
+
+    `intensity` ("on_the_go" / "deep_dive") narrows which question modes are
+    eligible; None keeps the default balanced mix.
+    """
+    allowed_modes = INTENSITY_MODES.get(intensity or "")
     ensure_enrollment(db, user, journey)
     now = _now()
     states = (
@@ -99,7 +124,9 @@ def build_session(
     }
     session: list[dict] = []
     for st in states:
-        q = _pick_question(db, st.skill_id, journey.curriculum_version)
+        q = _pick_question(
+            db, st.skill_id, journey.curriculum_version, allowed_modes
+        )
         if q is None:
             continue
         skill = skill_by_id.get(st.skill_id)

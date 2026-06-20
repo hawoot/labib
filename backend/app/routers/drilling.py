@@ -24,11 +24,14 @@ router = APIRouter(prefix="/journeys/{journey_id}", tags=["drilling"])
 def get_session(
     journey_id: str,
     limit: int = drilling.DEFAULT_SESSION_SIZE,
+    intensity: str | None = None,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     journey = get_owned_journey(journey_id, user, db)
-    items = drilling.build_session(db, user, journey, max(1, min(limit, 50)))
+    items = drilling.build_session(
+        db, user, journey, max(1, min(limit, 50)), intensity=intensity
+    )
     return SessionOut(journey_id=journey_id, items=[SessionItem(**i) for i in items])
 
 
