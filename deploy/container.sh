@@ -41,9 +41,14 @@ python3 -m venv .venv
 # 2b. Build the Flutter web app so the served UI matches the current code. ------
 #     Skipped (with a warning) if the Flutter SDK isn't installed — the existing
 #     prebuilt bundle in backend/app/webapp is served as-is in that case.
+#
+#     We `clean` + `pub get` first on purpose: a stale .dart_tool can carry an
+#     out-of-date web *plugin registrant*, which silently drops a plugin's web
+#     implementation from the build (e.g. speech_to_text) — the app then throws
+#     MissingPluginException at runtime. A clean build regenerates it.
 if command -v flutter >/dev/null 2>&1; then
-  echo "==> Building Flutter web app..."
-  ( cd "$APP_DIR/frontend" && flutter build web --release )
+  echo "==> Building Flutter web app (clean)..."
+  ( cd "$APP_DIR/frontend" && flutter clean && flutter pub get && flutter build web --release )
   rm -rf "$APP_DIR/backend/app/webapp"
   cp -r "$APP_DIR/frontend/build/web" "$APP_DIR/backend/app/webapp"
 else
