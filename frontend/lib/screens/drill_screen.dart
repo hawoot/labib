@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api.dart';
+import '../prefs.dart';
 import '../theme.dart';
 import '../widgets/answer_input.dart';
 
@@ -38,7 +39,11 @@ class _DrillScreenState extends State<DrillScreen> {
   bool _submitting = false;
   String? _error;
 
-  String get _intensityLabel => switch (widget.intensity) {
+  /// Current intensity — starts from the launcher choice but can be switched
+  /// mid-session via the pill; the new value persists as the default.
+  String? _intensity;
+
+  String get _intensityLabel => switch (_intensity) {
         'on_the_go' => 'On the go',
         'deep_dive' => 'Deep dive',
         _ => 'Mixed',
@@ -47,7 +52,18 @@ class _DrillScreenState extends State<DrillScreen> {
   @override
   void initState() {
     super.initState();
+    _intensity = widget.intensity;
     _load();
+  }
+
+  /// Switch intensity from inside the session: persist it as the new default
+  /// and pull a fresh set of questions at that intensity.
+  Future<void> _changeIntensity(String value) async {
+    if (value == _intensity) return;
+    HapticFeedback.selectionClick();
+    setState(() => _intensity = value);
+    await Prefs.setIntensity(value);
+    await _load();
   }
 
   @override
@@ -60,7 +76,7 @@ class _DrillScreenState extends State<DrillScreen> {
     setState(() => _error = null);
     try {
       final items =
-          await Api.getSession(widget.journeyId, intensity: widget.intensity);
+          await Api.getSession(widget.journeyId, intensity: _intensity);
       setState(() {
         _items = items;
         _index = 0;
@@ -170,7 +186,11 @@ class _DrillScreenState extends State<DrillScreen> {
       children: [
         Row(
           children: [
-            _IntensityPill(label: _intensityLabel),
+            _IntensitySwitcher(
+              label: _intensityLabel,
+              current: _intensity,
+              onChanged: _changeIntensity,
+            ),
             const SizedBox(width: Space.sm),
             Expanded(
                 child: Text(item['skill_name'] ?? '',
@@ -321,28 +341,63 @@ class _DrillScreenState extends State<DrillScreen> {
   }
 }
 
-class _IntensityPill extends StatelessWidget {
-  const _IntensityPill({required this.label});
+/// The intensity pill — tap to switch On the go / Deep dive mid-session.
+class _IntensitySwitcher extends StatelessWidget {
+  const _IntensitySwitcher({
+    required this.label,
+    required this.current,
+    required this.onChanged,
+  });
+
   final String label;
+  final String? current;
+  final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: 4),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [
-          brandSeed.withValues(alpha: 0.22),
-          _magenta.withValues(alpha: 0.14),
-        ]),
-        borderRadius: BorderRadius.circular(Radii.chip),
-        border: Border.all(color: brandSeed.withValues(alpha: 0.4)),
+    return PopupMenuButton<String>(
+      tooltip: 'Change intensity',
+      onSelected: onChanged,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.control)),
+      itemBuilder: (_) => [
+        _item('on_the_go', '🎧  On the go'),
+        _item('deep_dive', '✍️  Deep dive'),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: 4),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [
+            brandSeed.withValues(alpha: 0.22),
+            _magenta.withValues(alpha: 0.14),
+          ]),
+          borderRadius: BorderRadius.circular(Radii.chip),
+          border: Border.all(color: brandSeed.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: brandSeed,
+                )),
+            const Icon(Icons.expand_more, size: 14, color: brandSeed),
+          ],
+        ),
       ),
-      child: Text(label,
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: brandSeed,
-          )),
     );
   }
+
+  PopupMenuItem<String> _item(String value, String text) => PopupMenuItem(
+        value: value,
+        child: Row(
+          children: [
+            Expanded(child: Text(text)),
+            if (current == value)
+              const Icon(Icons.check, size: 18, color: brandSeed),
+          ],
+        ),
+      );
 }
