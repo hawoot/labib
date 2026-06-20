@@ -5,9 +5,8 @@
 #                   `git pull` on the host always serves the current UI (no
 #                   `flutter build` needed there).
 #  * Android APK -> uploaded as a downloadable artifact you can install on a
-#                   phone. The app asks for the server URL on first run and
-#                   stores it on the device, so the APK is generic — nothing to
-#                   configure here, and it survives the server URL changing.
+#                   phone. The server URL is the version-controlled kServerUrl
+#                   in frontend/lib/config.dart — set it before building.
 name: build
 
 on:
@@ -66,10 +65,20 @@ jobs:
         # Dart code and pubspec untouched.
         working-directory: frontend
         run: flutter create --platforms=android --org com.labib .
+      - name: Ensure INTERNET permission in the release manifest
+        # Flutter only puts INTERNET in the debug/profile manifests, so a release
+        # APK can't do any networking (DNS lookups fail with errno 7). Add it to
+        # the main manifest so the release build can reach the server.
+        working-directory: frontend
+        run: |
+          MAN=android/app/src/main/AndroidManifest.xml
+          if ! grep -q 'android.permission.INTERNET' "$MAN"; then
+            sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$MAN"
+          fi
+          echo "----- AndroidManifest.xml -----"; cat "$MAN"
       - name: Build APK
         working-directory: frontend
-        # No server URL baked in — the app asks for it on first run and stores it
-        # on the device, so the APK is generic and survives the URL changing.
+        # Server URL is the version-controlled kServerUrl in lib/config.dart.
         run: |
           flutter pub get
           flutter build apk --release
