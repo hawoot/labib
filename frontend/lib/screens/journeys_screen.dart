@@ -6,9 +6,16 @@ import '../theme.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/pressable.dart';
 import '../widgets/skeleton.dart';
+import 'drill_screen.dart';
 import 'journey_screen.dart';
 
-/// Home: the list of journeys, with a proactive empty state.
+/// Magenta companion to the brand violet — used only for the "today" gradient
+/// accents (hero, Let's go), matching the landing screen.
+const Color _magenta = Color(0xFFC13BFF);
+
+/// Home: a "today" hero (what's due across all your journeys + Let's go) over
+/// the list of journeys. The journey list keeps its full management (create,
+/// archive, delete); account/switching now lives in the Profile tab.
 class JourneysScreen extends StatefulWidget {
   const JourneysScreen({super.key});
 
@@ -17,9 +24,21 @@ class JourneysScreen extends StatefulWidget {
 }
 
 class _JourneysScreenState extends State<JourneysScreen> {
-  List<dynamic>? _journeys;
+  List<Map<String, dynamic>>? _journeys;
   String? _error;
   bool _showArchived = false;
+
+  /// Total skills due across all active journeys — the daily driver shown in
+  /// the hero. Null while loading or in the archived view.
+  int? get _dueTotal {
+    if (_journeys == null || _showArchived) return null;
+    var n = 0;
+    for (final j in _journeys!) {
+      final p = j['progress'] as Map<String, dynamic>?;
+      if (p != null) n += (p['due'] as num?)?.toInt() ?? 0;
+    }
+    return n;
+  }
 
   @override
   void initState() {
@@ -31,11 +50,53 @@ class _JourneysScreenState extends State<JourneysScreen> {
     setState(() => _error = null);
     try {
       await Api.ensureUser();
-      final js = await Api.listJourneys(archived: _showArchived);
+      final js = _showArchived
+          ? [
+              for (final j in await Api.listJourneys(archived: true))
+                Map<String, dynamic>.from(j as Map)
+            ]
+          : await Api.journeysWithProgress();
       if (mounted) setState(() => _journeys = js);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  /// "Let's go": start the most-pressing session right now. Picks the active
+  /// journey with the most due skills; if nothing's due, the first journey
+  /// that's ready to drill. (A true cross-journey session comes later.)
+  void _letsGo() {
+    HapticFeedback.selectionClick();
+    final active = _journeys ?? const [];
+    Map<String, dynamic>? best;
+    var bestDue = -1;
+    for (final j in active) {
+      final p = j['progress'] as Map<String, dynamic>?;
+      final due = (p?['due'] as num?)?.toInt() ?? 0;
+      final ready = j['status'] == 'ready' || (p?['skill_count'] as num? ?? 0) > 0;
+      if (!ready) continue;
+      if (due > bestDue) {
+        bestDue = due;
+        best = j;
+      }
+    }
+    if (best == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Add material to a journey first, then come back to drill.'),
+        ),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      AppPageRoute(
+        builder: (_) => DrillScreen(
+          journeyId: best!['id'] as String,
+          title: best['title'] as String? ?? 'Journey',
+        ),
+      ),
+    ).then((_) => _load());
   }
 
   Future<void> _archive(String jid) async {
@@ -135,92 +196,6 @@ class _JourneysScreenState extends State<JourneysScreen> {
     ).then((_) => _load());
   }
 
-  Future<void> _accountDialog() async {
-    HapticFeedback.selectionClick();
-    final codeInput = TextEditingController();
-    final switched = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Your account'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Your code — save it to get back in on any device or '
-                'browser. No password needed.'),
-            const SizedBox(height: Space.sm),
-            Card(
-              color: Theme.of(ctx).colorScheme.surfaceContainerHighest,
-              child: ListTile(
-                title: SelectableText(
-                  Api.code ?? '…',
-                  style: const TextStyle(
-                      fontFamily: 'monospace',
-                      fontSize: 20,
-                      letterSpacing: 2),
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.copy),
-                  tooltip: 'Copy',
-                  onPressed: Api.code == null
-                      ? null
-                      : () {
-                          Clipboard.setData(ClipboardData(text: Api.code!));
-                          ScaffoldMessenger.of(ctx).showSnackBar(
-                            const SnackBar(content: Text('Code copied')),
-                          );
-                        },
-                ),
-              ),
-            ),
-            const Divider(height: 32),
-            const Text('Have a code from another device? Enter it to switch '
-                'to that account.'),
-            const SizedBox(height: Space.sm),
-            TextField(
-              controller: codeInput,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'Enter a code',
-                hintText: 'XXXX-XXXX',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Close')),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Switch'),
-          ),
-        ],
-      ),
-    );
-
-    if (switched != true) return;
-    final entered = codeInput.text.trim();
-    if (entered.isEmpty) return;
-    try {
-      final ok = await Api.loginWithCode(entered);
-      if (!mounted) return;
-      if (ok) {
-        setState(() => _journeys = null);
-        await _load();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No account with that code.')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -241,11 +216,6 @@ class _JourneysScreenState extends State<JourneysScreen> {
               });
               _load();
             },
-          ),
-          IconButton(
-            icon: const Icon(Icons.person_outline),
-            tooltip: 'Your account',
-            onPressed: _accountDialog,
           ),
           const SizedBox(width: Space.xs),
         ],
@@ -291,38 +261,50 @@ class _JourneysScreenState extends State<JourneysScreen> {
     }
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView.separated(
+      child: ListView(
         padding: const EdgeInsets.fromLTRB(Space.lg, Space.lg, Space.lg, 96),
-        itemCount: _journeys!.length,
-        separatorBuilder: (_, __) => const SizedBox(height: Space.md),
-        itemBuilder: (_, i) {
-          final j = _journeys![i] as Map<String, dynamic>;
-          final jid = j['id'] as String;
-          return Dismissible(
-            key: ValueKey(jid),
-            direction: DismissDirection.endToStart,
-            background: _swipeBackground(),
-            confirmDismiss: (_) async {
-              // Do the work, but don't remove the tile ourselves — _load()
-              // rebuilds the list, which avoids the "dismissed but still in
-              // tree" assertion.
-              if (_showArchived) {
-                await _unarchive(jid);
-              } else {
-                await _archive(jid);
-              }
-              return false;
-            },
-            child: _JourneyCard(
-              journey: j,
-              showArchived: _showArchived,
-              onTap: () => _open(j),
-              onArchive: () => _archive(jid),
-              onUnarchive: () => _unarchive(jid),
-              onDelete: () => _confirmDelete(j),
+        children: [
+          if (!_showArchived) ...[
+            _TodayHero(due: _dueTotal, onLetsGo: _letsGo),
+            const SizedBox(height: Space.xl),
+            Padding(
+              padding: const EdgeInsets.only(left: Space.xs, bottom: Space.sm),
+              child: Text(
+                'Your journeys',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      letterSpacing: 0.6,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
             ),
-          );
-        },
+          ],
+          for (final j in _journeys!) ...[
+            Dismissible(
+              key: ValueKey(j['id']),
+              direction: DismissDirection.endToStart,
+              background: _swipeBackground(),
+              confirmDismiss: (_) async {
+                final jid = j['id'] as String;
+                if (_showArchived) {
+                  await _unarchive(jid);
+                } else {
+                  await _archive(jid);
+                }
+                return false;
+              },
+              child: _JourneyCard(
+                journey: j,
+                showArchived: _showArchived,
+                onTap: () => _open(j),
+                onArchive: () => _archive(j['id'] as String),
+                onUnarchive: () => _unarchive(j['id'] as String),
+                onDelete: () => _confirmDelete(j),
+              ),
+            ),
+            const SizedBox(height: Space.md),
+          ],
+        ],
       ),
     );
   }
@@ -344,7 +326,100 @@ class _JourneysScreenState extends State<JourneysScreen> {
   }
 }
 
-/// One journey, as a tappable card with a status hint and a context menu.
+/// The "today" hero: how much is due across all journeys right now, with the
+/// one big action — Let's go. Uses the violet→magenta brand gradient.
+class _TodayHero extends StatelessWidget {
+  const _TodayHero({required this.due, required this.onLetsGo});
+
+  /// Total due across journeys; null while progress is still loading.
+  final int? due;
+  final VoidCallback onLetsGo;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final n = due;
+    final headline = n == null
+        ? '…'
+        : n == 0
+            ? 'All caught up'
+            : '$n';
+    final sub = n == null
+        ? 'Checking what’s due…'
+        : n == 0
+            ? 'Nothing due right now — get ahead with a quick session.'
+            : 'to revisit today, across your journeys';
+
+    return Container(
+      padding: const EdgeInsets.all(Space.xl),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.card + 6),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.5)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            brandSeed.withValues(alpha: 0.18),
+            _magenta.withValues(alpha: 0.10),
+            scheme.surface.withValues(alpha: 0.0),
+          ],
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            headline,
+            style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -1.5,
+                  height: 1.0,
+                ),
+          ),
+          const SizedBox(height: Space.xs),
+          Text(
+            sub,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+          ),
+          const SizedBox(height: Space.lg),
+          SizedBox(
+            width: double.infinity,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(Radii.control),
+                gradient: const LinearGradient(
+                  colors: [brandSeed, _magenta],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: brandSeed.withValues(alpha: 0.35),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: FilledButton(
+                onPressed: onLetsGo,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Let’s go  →',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One journey, as a tappable card. When progress is available it shows a
+/// mastery bar and what's due; otherwise it falls back to the intent line.
 class _JourneyCard extends StatelessWidget {
   const _JourneyCard({
     required this.journey,
@@ -367,6 +442,7 @@ class _JourneyCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final intent = (journey['intent'] as String?) ?? '';
     final status = journey['status'] as String?;
+    final progress = journey['progress'] as Map<String, dynamic>?;
     return Pressable(
       onTap: onTap,
       borderRadius: BorderRadius.circular(Radii.card),
@@ -403,14 +479,17 @@ class _JourneyCard extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    intent.isNotEmpty ? intent : 'No intent set',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                  ),
+                  if (progress != null && (progress['skill_count'] as num? ?? 0) > 0)
+                    _ProgressLine(progress: progress)
+                  else
+                    Text(
+                      intent.isNotEmpty ? intent : 'No intent set',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                    ),
                 ],
               ),
             ),
@@ -423,6 +502,45 @@ class _JourneyCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Mastery bar + a "N to revisit" hint, shown on journeys that have skills.
+class _ProgressLine extends StatelessWidget {
+  const _ProgressLine({required this.progress});
+  final Map<String, dynamic> progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final mastered = (progress['mastered'] as num?)?.toInt() ?? 0;
+    final total = (progress['skill_count'] as num?)?.toInt() ?? 0;
+    final due = (progress['due'] as num?)?.toInt() ?? 0;
+    final pct = total == 0 ? 0.0 : (mastered / total).clamp(0.0, 1.0);
+    final label = due > 0 ? '$due to revisit' : 'Up to date';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: LinearProgressIndicator(
+            value: pct,
+            minHeight: 5,
+            backgroundColor: scheme.surfaceContainerHighest,
+            valueColor: const AlwaysStoppedAnimation(brandSeed),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '${(pct * 100).round()}% mastered · $label',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: due > 0 ? _magenta : scheme.onSurfaceVariant,
+                fontWeight: due > 0 ? FontWeight.w700 : FontWeight.w500,
+              ),
+        ),
+      ],
     );
   }
 }

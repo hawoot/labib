@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
-import 'screens/journeys_screen.dart';
+import 'screens/home_shell.dart';
 import 'screens/landing_screen.dart';
 import 'theme.dart';
 
@@ -41,7 +41,7 @@ class _Launcher extends StatelessWidget {
             body: SizedBox.shrink(),
           );
         }
-        return snap.data! ? const JourneysScreen() : const LandingScreen();
+        return snap.data! ? const HomeShell() : const LandingScreen();
       },
     );
   }
