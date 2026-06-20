@@ -3,148 +3,154 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>labib · the Go flow</title>
+<title>labib · the Go flow v2</title>
 <style>
   :root{
-    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#26303c;
-    --ink:#e8edf3; --mut:#8b97a7; --acc:#5eead4; --acc2:#38bdf8;
-    --warm:#fbbf24; --ok:#4ade80;
+    --bg:#0B0B0F; --panel:#15131d; --panel2:#1b1825; --line:#2a2640;
+    --ink:#F4F4F7; --dim:#9A9AA8; --violet:#6D4AFF; --violet2:#9B6BFF; --magenta:#C13BFF;
   }
   *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  body{margin:0;background:#070a0e;color:var(--ink);
-    display:flex;gap:28px;flex-wrap:wrap;justify-content:center;
-    align-items:flex-start;padding:40px 20px}
-  .cap{width:100%;text-align:center;color:var(--mut);font-size:13px;letter-spacing:.18em;
+  body{margin:0;background:#050507;color:var(--ink);
+    display:flex;gap:28px;flex-wrap:wrap;justify-content:center;align-items:flex-start;padding:40px 20px}
+  .cap{width:100%;text-align:center;color:var(--dim);font-size:13px;letter-spacing:.2em;
     text-transform:uppercase;margin-bottom:6px}
   .phone{width:300px;height:620px;background:var(--bg);border-radius:34px;
     border:1px solid var(--line);overflow:hidden;position:relative;
-    box-shadow:0 30px 80px rgba(0,0,0,.55)}
-  .scr{position:absolute;inset:0;display:flex;flex-direction:column;padding:20px 18px}
-  .lbl{position:absolute;top:14px;left:0;right:0;text-align:center;font-size:11px;
-    color:var(--mut);letter-spacing:.14em;text-transform:uppercase;z-index:5}
-  .pad{height:18px}
-  .row{display:flex;align-items:center;justify-content:space-between}
+    box-shadow:0 30px 80px rgba(0,0,0,.6)}
+  .scr{position:absolute;inset:0;display:flex;flex-direction:column;padding:34px 18px 0}
+  .lbl{position:absolute;top:13px;left:0;right:0;text-align:center;font-size:11px;
+    color:var(--dim);letter-spacing:.14em;text-transform:uppercase;z-index:9}
+  .glow{position:absolute;border-radius:50%;filter:blur(60px);opacity:.55;z-index:0}
+  .row{display:flex;align-items:center;justify-content:space-between;position:relative;z-index:2}
   .brand{font-weight:800;font-size:20px;letter-spacing:-.5px}
-  .brand span{color:var(--acc)}
-  .av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--acc2))}
+  .brand span{background:linear-gradient(90deg,var(--violet2),var(--magenta));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .av{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--violet),var(--magenta))}
 
-  /* Home hero */
-  .hero{margin-top:16px;background:linear-gradient(160deg,#13262a,#0f1822);
-    border:1px solid var(--line);border-radius:22px;padding:18px}
-  .due{font-size:34px;font-weight:800;letter-spacing:-1px}
-  .due small{font-size:14px;color:var(--mut);font-weight:500}
-  .streak{display:inline-flex;align-items:center;gap:6px;margin-top:8px;
-    background:rgba(251,191,36,.12);color:var(--warm);padding:4px 10px;
-    border-radius:999px;font-size:12px;font-weight:600}
-  .go{margin-top:16px;width:100%;border:0;border-radius:16px;padding:16px;
-    font-size:17px;font-weight:800;color:#06231f;cursor:pointer;
-    background:linear-gradient(135deg,var(--acc),var(--acc2));
-    box-shadow:0 10px 28px rgba(94,234,212,.25)}
+  /* HERO orb */
+  .hero{position:relative;z-index:2;margin-top:18px;display:flex;flex-direction:column;align-items:center}
+  .orb{width:150px;height:150px;border-radius:50%;position:relative;display:flex;
+    align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 35%,#241a3d,#100c1c);
+    border:1px solid #34284f;animation:breathe 4s ease-in-out infinite}
+  .orb::before{content:"";position:absolute;inset:-3px;border-radius:50%;
+    background:conic-gradient(from 200deg,var(--violet),var(--magenta),var(--violet));
+    -webkit-mask:radial-gradient(closest-side,transparent 71%,#000 72%);
+            mask:radial-gradient(closest-side,transparent 71%,#000 72%)}
+  @keyframes breathe{0%,100%{box-shadow:0 0 38px rgba(157,107,255,.35)}
+    50%{box-shadow:0 0 64px rgba(193,59,255,.55)}}
+  .orb b{font-size:40px;font-weight:800;line-height:1;z-index:2}
+  .orb i{font-size:11px;color:var(--dim);font-style:normal;margin-top:4px;z-index:2}
+  .streak{display:inline-flex;align-items:center;gap:6px;margin-top:14px;
+    background:rgba(193,59,255,.12);color:#e7a6ff;padding:5px 12px;border-radius:999px;
+    font-size:12px;font-weight:600}
+  .go{margin-top:14px;width:86%;border:0;border-radius:16px;padding:16px;
+    font-size:17px;font-weight:800;color:#fff;cursor:pointer;
+    background:linear-gradient(135deg,var(--violet),var(--magenta));
+    box-shadow:0 12px 30px rgba(109,74,255,.4)}
 
-  .sub{margin:22px 2px 10px;color:var(--mut);font-size:12px;
-    letter-spacing:.12em;text-transform:uppercase}
-  .jrn{display:flex;align-items:center;gap:14px;background:var(--panel);
-    border:1px solid var(--line);border-radius:16px;padding:13px;margin-bottom:10px}
-  .ring{width:42px;height:42px;border-radius:50%;flex:none;
-    background:conic-gradient(var(--acc) var(--p),#22303c 0);
-    display:flex;align-items:center;justify-content:center}
-  .ring::after{content:"";width:30px;height:30px;border-radius:50%;background:var(--panel)}
-  .ring b{position:absolute;font-size:11px;font-weight:700}
-  .jt{font-weight:700;font-size:15px}
-  .jm{color:var(--mut);font-size:12px;margin-top:2px}
+  /* JOURNEY PATH */
+  .pathwrap{position:relative;z-index:2;margin-top:24px;padding-left:8px}
+  .ptitle{color:var(--dim);font-size:12px;letter-spacing:.12em;text-transform:uppercase;margin:0 0 14px 6px}
+  .node{display:flex;align-items:center;gap:14px;position:relative;padding-bottom:20px}
+  .node:not(:last-child)::before{content:"";position:absolute;left:13px;top:28px;bottom:-2px;width:2px;
+    background:linear-gradient(var(--violet),transparent)}
+  .dot{width:28px;height:28px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700;border:2px solid var(--line);background:var(--panel);color:var(--dim);z-index:2}
+  .dot.lit{border-color:transparent;color:#fff;background:linear-gradient(135deg,var(--violet),var(--magenta));
+    box-shadow:0 0 16px rgba(157,107,255,.6)}
+  .nt{font-weight:700;font-size:15px}
+  .nm{color:var(--dim);font-size:12px;margin-top:1px}
 
-  /* bottom nav */
-  .nav{position:absolute;bottom:0;left:0;right:0;height:62px;background:#0b0f14ee;
-    border-top:1px solid var(--line);display:flex;justify-content:space-around;
-    align-items:center;backdrop-filter:blur(8px)}
-  .nav div{display:flex;flex-direction:column;align-items:center;gap:3px;
-    font-size:10px;color:var(--mut)}
-  .nav .on{color:var(--acc)}
+  /* nav */
+  .nav{position:absolute;bottom:0;left:0;right:0;height:62px;background:#0b0a10ee;
+    border-top:1px solid var(--line);display:flex;justify-content:space-around;align-items:center;
+    backdrop-filter:blur(8px);z-index:8}
+  .nav div{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--dim)}
+  .nav .on{color:var(--violet2)}
   .nav i{width:18px;height:18px;border-radius:5px;background:currentColor;opacity:.85}
 
-  /* launcher sheet */
-  .dim{position:absolute;inset:0;background:rgba(0,0,0,.55)}
-  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--panel);
-    border-top-left-radius:26px;border-top-right-radius:26px;padding:20px 18px 26px;
-    border:1px solid var(--line)}
-  .grab{width:40px;height:4px;border-radius:9px;background:#3a4654;margin:0 auto 16px}
-  .sh-t{font-size:13px;color:var(--mut);margin-bottom:10px}
-  .modes{display:flex;gap:10px;margin-bottom:8px}
-  .mode{flex:1;border:1px solid var(--line);border-radius:16px;padding:14px;
-    background:var(--panel2);cursor:pointer}
-  .mode.sel{border-color:var(--acc);background:rgba(94,234,212,.08)}
-  .mi{font-size:22px}
-  .mn{font-weight:700;font-size:14px;margin-top:8px}
-  .md{color:var(--mut);font-size:11px;margin-top:3px;line-height:1.35}
-  .chip{display:inline-flex;align-items:center;gap:7px;margin-top:14px;
-    background:var(--panel2);border:1px solid var(--line);color:var(--ink);
-    padding:9px 13px;border-radius:999px;font-size:13px;cursor:pointer}
-  .chip b{color:var(--acc);font-weight:700}
-  .let{margin-top:18px;width:100%;border:0;border-radius:16px;padding:17px;
-    font-size:18px;font-weight:800;color:#06231f;cursor:pointer;
-    background:linear-gradient(135deg,var(--acc),var(--acc2))}
+  /* launcher */
+  .dim{position:absolute;inset:0;background:rgba(5,5,7,.6);z-index:5}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--panel);z-index:6;
+    border-top-left-radius:26px;border-top-right-radius:26px;padding:20px 18px 26px;border:1px solid var(--line)}
+  .grab{width:40px;height:4px;border-radius:9px;background:#3a3556;margin:0 auto 16px}
+  .sh-t{font-size:13px;color:var(--dim);margin-bottom:12px}
+  .modes{display:flex;gap:10px}
+  .mode{flex:1;border:1px solid var(--line);border-radius:16px;padding:14px;background:var(--panel2);cursor:pointer}
+  .mode.sel{border-color:transparent;background:linear-gradient(150deg,rgba(109,74,255,.28),rgba(193,59,255,.18));
+    box-shadow:0 0 0 1px var(--violet) inset}
+  .mi{font-size:22px}.mn{font-weight:700;font-size:14px;margin-top:8px}
+  .md{color:var(--dim);font-size:11px;margin-top:3px;line-height:1.35}
+  .chip{display:inline-flex;align-items:center;gap:7px;margin-top:14px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--ink);padding:9px 13px;border-radius:999px;font-size:13px;cursor:pointer}
+  .chip b{color:var(--violet2);font-weight:700}
+  .let{margin-top:18px;width:100%;border:0;border-radius:16px;padding:17px;font-size:18px;font-weight:800;
+    color:#fff;cursor:pointer;background:linear-gradient(135deg,var(--violet),var(--magenta));
+    box-shadow:0 12px 30px rgba(109,74,255,.4)}
 
   /* drill */
-  .top{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
-  .pill{font-size:11px;color:var(--acc);background:rgba(94,234,212,.1);
-    border:1px solid #2b4a45;padding:5px 11px;border-radius:999px;font-weight:600}
-  .x{color:var(--mut);font-size:20px}
-  .bar{height:5px;background:#22303c;border-radius:9px;margin-top:16px;overflow:hidden}
-  .bar i{display:block;height:100%;width:40%;background:var(--acc)}
-  .q{margin-top:40px;font-size:13px;color:var(--mut);letter-spacing:.1em;text-transform:uppercase}
-  .qt{font-size:26px;font-weight:800;line-height:1.25;margin-top:12px;letter-spacing:-.4px}
-  .mic{margin:34px auto 10px;width:96px;height:96px;border-radius:50%;
-    background:radial-gradient(circle at 50% 40%,#1c2b30,#101820);
-    border:1px solid #2b4a45;display:flex;align-items:center;justify-content:center;
-    box-shadow:0 0 0 0 rgba(94,234,212,.4);animation:pulse 2s infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(94,234,212,.35)}
-    70%{box-shadow:0 0 0 22px rgba(94,234,212,0)}100%{box-shadow:0 0 0 0 rgba(94,234,212,0)}}
-  .mic b{font-size:34px}
-  .hint{text-align:center;color:var(--mut);font-size:13px}
-  .heard{text-align:center;margin-top:18px;font-size:18px;font-weight:600;color:var(--ink)}
-  .heard span{color:var(--acc)}
-  .actions{position:absolute;bottom:26px;left:18px;right:18px;display:flex;gap:12px}
-  .skip{flex:1;border:1px solid var(--line);background:var(--panel);color:var(--mut);
-    border-radius:15px;padding:15px;font-size:15px;font-weight:600;cursor:pointer}
-  .next{flex:2;border:0;border-radius:15px;padding:15px;font-size:15px;font-weight:800;
-    color:#06231f;background:linear-gradient(135deg,var(--acc),var(--acc2));cursor:pointer}
+  .top{display:flex;align-items:center;justify-content:space-between;margin-top:4px;position:relative;z-index:2}
+  .pill{font-size:11px;color:var(--violet2);background:rgba(109,74,255,.14);border:1px solid #34284f;
+    padding:5px 11px;border-radius:999px;font-weight:600}
+  .x{color:var(--dim);font-size:20px}
+  .bar{height:5px;background:#241f38;border-radius:9px;margin-top:16px;overflow:hidden;position:relative;z-index:2}
+  .bar i{display:block;height:100%;width:40%;background:linear-gradient(90deg,var(--violet),var(--magenta))}
+  .q{margin-top:30px;font-size:12px;color:var(--dim);letter-spacing:.12em;text-transform:uppercase;text-align:center;position:relative;z-index:2}
+  .qt{font-size:25px;font-weight:800;line-height:1.25;margin-top:10px;letter-spacing:-.4px;text-align:center;position:relative;z-index:2}
+  .voice{position:relative;z-index:2;margin:30px auto 0;width:150px;height:150px;display:flex;align-items:center;justify-content:center}
+  .voice span{position:absolute;border-radius:50%;border:1.5px solid var(--violet);opacity:0}
+  .r1{width:80px;height:80px;animation:rip 2.4s ease-out infinite}
+  .r2{width:80px;height:80px;animation:rip 2.4s ease-out .8s infinite}
+  .r3{width:80px;height:80px;animation:rip 2.4s ease-out 1.6s infinite}
+  @keyframes rip{0%{transform:scale(.7);opacity:.7;border-color:var(--magenta)}
+    100%{transform:scale(2);opacity:0;border-color:var(--violet)}}
+  .core{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:30px;
+    background:radial-gradient(circle at 50% 40%,#2a1f49,#140f24);border:1px solid #3a2c5a;
+    box-shadow:0 0 30px rgba(157,107,255,.5);z-index:2}
+  .hint{text-align:center;color:var(--dim);font-size:13px;margin-top:14px;position:relative;z-index:2}
+  .heard{text-align:center;margin-top:14px;font-size:18px;font-weight:600;position:relative;z-index:2}
+  .heard em{font-style:normal;background:linear-gradient(90deg,var(--violet2),var(--magenta));
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .actions{position:absolute;bottom:26px;left:18px;right:18px;display:flex;gap:12px;z-index:3}
+  .skip{flex:1;border:1px solid var(--line);background:var(--panel);color:var(--dim);border-radius:15px;
+    padding:15px;font-size:15px;font-weight:600;cursor:pointer}
+  .next{flex:2;border:0;border-radius:15px;padding:15px;font-size:15px;font-weight:800;color:#fff;
+    background:linear-gradient(135deg,var(--violet),var(--magenta));cursor:pointer}
 </style>
 </head>
 <body>
-  <div class="cap">labib — the “Let’s go” flow</div>
+  <div class="cap">labib — landing palette · with a pulse</div>
 
-  <!-- 1. HOME -->
+  <!-- HOME -->
   <div class="phone">
-    <div class="lbl">Home</div>
-    <div class="scr" style="padding-top:34px">
-      <div class="row">
-        <div class="brand">la<span>bib</span></div>
-        <div class="av"></div>
-      </div>
+    <div class="lbl">Home — journey path</div>
+    <div class="glow" style="width:200px;height:200px;background:var(--violet);top:-30px;left:-40px"></div>
+    <div class="glow" style="width:180px;height:180px;background:var(--magenta);top:40px;right:-50px"></div>
+    <div class="scr">
+      <div class="row"><div class="brand">la<span>bib</span></div><div class="av"></div></div>
       <div class="hero">
-        <div class="due">12 <small>to revisit today</small></div>
+        <div class="orb"><div style="text-align:center"><b>12</b><i>to revisit today</i></div></div>
         <div class="streak">🔥 6-day streak</div>
         <button class="go">Let’s go →</button>
       </div>
-      <div class="sub">Your journeys</div>
-      <div class="jrn"><div class="ring" style="--p:74%"><b>74</b></div>
-        <div><div class="jt">Calculus</div><div class="jm">5 to revisit · strong</div></div></div>
-      <div class="jrn"><div class="ring" style="--p:48%"><b>48</b></div>
-        <div><div class="jt">Quantum physics</div><div class="jm">4 to revisit · building</div></div></div>
-      <div class="jrn"><div class="ring" style="--p:31%"><b>31</b></div>
-        <div><div class="jt">Linear algebra</div><div class="jm">3 to revisit · new</div></div></div>
+      <div class="pathwrap">
+        <p class="ptitle">Your journey</p>
+        <div class="node"><div class="dot lit">✦</div><div><div class="nt">Calculus</div><div class="nm">74% · strong</div></div></div>
+        <div class="node"><div class="dot lit">✦</div><div><div class="nt">Quantum physics</div><div class="nm">48% · building</div></div></div>
+        <div class="node"><div class="dot">3</div><div><div class="nt">Linear algebra</div><div class="nm">31% · new</div></div></div>
+      </div>
     </div>
-    <div class="nav">
-      <div class="on"><i></i>Home</div><div><i></i>Progress</div><div><i></i>Profile</div>
-    </div>
+    <div class="nav"><div class="on"><i></i>Home</div><div><i></i>Progress</div><div><i></i>Profile</div></div>
   </div>
 
-  <!-- 2. LET'S GO LAUNCHER -->
+  <!-- LAUNCHER -->
   <div class="phone">
     <div class="lbl">tap “Let’s go”</div>
-    <div class="scr" style="padding-top:34px;filter:brightness(.5)">
+    <div class="glow" style="width:200px;height:200px;background:var(--violet);top:-30px;left:-40px"></div>
+    <div class="scr" style="filter:brightness(.45)">
       <div class="row"><div class="brand">la<span>bib</span></div><div class="av"></div></div>
-      <div class="hero"><div class="due">12 <small>to revisit today</small></div></div>
+      <div class="hero"><div class="orb"><div style="text-align:center"><b>12</b><i>today</i></div></div></div>
     </div>
     <div class="dim"></div>
     <div class="sheet">
@@ -161,25 +167,24 @@
     </div>
   </div>
 
-  <!-- 3. ON-THE-GO DRILL -->
+  <!-- DRILL -->
   <div class="phone">
-    <div class="lbl">On-the-go drill (voice)</div>
-    <div class="scr" style="padding-top:34px">
-      <div class="top">
-        <div class="pill">🎧 On the go · Calculus</div>
-        <div class="x">✕</div>
-      </div>
+    <div class="lbl">On-the-go · voice</div>
+    <div class="glow" style="width:220px;height:220px;background:var(--violet);bottom:120px;left:40px"></div>
+    <div class="glow" style="width:160px;height:160px;background:var(--magenta);top:120px;right:-40px"></div>
+    <div class="scr">
+      <div class="top"><div class="pill">🎧 On the go · Calculus</div><div class="x">✕</div></div>
       <div class="bar"><i></i></div>
       <div class="q">Recall</div>
-      <div class="qt">What’s the derivative of sin(x)?</div>
-      <div class="mic"><b>🎙️</b></div>
+      <div class="qt">Derivative of sin(x)?</div>
+      <div class="voice">
+        <span class="r1"></span><span class="r2"></span><span class="r3"></span>
+        <div class="core">🎙️</div>
+      </div>
       <div class="hint">Listening… just say it</div>
-      <div class="heard">“…<span>cosine x</span>”</div>
+      <div class="heard">“…<em>cosine x</em>”</div>
     </div>
-    <div class="actions">
-      <button class="skip">Skip ↦</button>
-      <button class="next">Check</button>
-    </div>
+    <div class="actions"><button class="skip">Skip ↦</button><button class="next">Check</button></div>
   </div>
 </body>
 </html>
