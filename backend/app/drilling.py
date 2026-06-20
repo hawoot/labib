@@ -255,6 +255,95 @@ def mark_attempt(
     }
 
 
+def _last_user_text(history: list[dict]) -> str:
+    """Pull the most recent student message's text out of the chat history,
+    whether its content is a plain string or a list of parts (text + image)."""
+    for msg in reversed(history):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            for part in content:
+                if part.get("type") == "text" and part.get("text"):
+                    return part["text"]
+            return "(photo)"
+    return "(chat)"
+
+
+def chat_turn(
+    db: Session,
+    user: models.User,
+    journey_id: str,
+    question_id: str,
+    history: list[dict],
+) -> dict:
+    """One turn of the per-question tutor chat. `history` is the conversation so
+    far (LLM-format messages, content may include image parts). We prepend the
+    question context as a system prompt and ask the model to reply AND judge
+    whether the student has now answered correctly. On 'solved' we record the
+    attempt and move the spaced-repetition schedule, once.
+
+    Returns {reply, solved, score}. Survives a flaky model (returns a soft reply
+    rather than erroring, so the chat never dead-ends)."""
+    question = db.get(models.Question, question_id)
+    if question is None or question.journey_id != journey_id:
+        raise ValueError("Question not found in this journey.")
+    skill = db.get(models.Skill, question.skill_id)
+
+    system = (
+        "You are labib, a warm, concise tutor helping a student with ONE question. "
+        "Converse naturally — give hints, ask Socratic questions, explain when "
+        "asked, and react to photos of their work. Keep replies short (1-4 "
+        "sentences). Never dump the full solution unless they explicitly give up.\n\n"
+        f"SKILL: {skill.name if skill else ''}\n"
+        f"QUESTION: {question.prompt}\n"
+        f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n\n"
+        'Always reply as STRICT JSON: {"reply": string, "solved": boolean, '
+        '"score": number 0..1}. Set solved=true with score≈1 once the student '
+        "has demonstrated the correct answer themselves. If they give up and you "
+        "reveal the full answer, set solved=true and score=0. Otherwise solved=false."
+    )
+    messages = [{"role": "system", "content": system}, *history]
+    try:
+        data = complete_json(messages, max_tokens=1200)
+        reply = str(data.get("reply", "")).strip() or "Tell me what you’re thinking."
+        solved = bool(data.get("solved", False))
+        score = max(0.0, min(1.0, float(data.get("score", 0) or 0)))
+    except Exception as e:  # noqa: BLE001 - chat must survive a flaky model
+        logger.warning("chat unavailable for %s: %s", question_id, e)
+        return {
+            "reply": "I’m having trouble responding right now — try again in a moment.",
+            "solved": False,
+            "score": 0.0,
+        }
+
+    if solved:
+        db.add(
+            models.Attempt(
+                user_id=user.id,
+                journey_id=journey_id,
+                skill_id=question.skill_id,
+                question_id=question_id,
+                user_answer=_last_user_text(history),
+                score=score,
+                correct=score >= CORRECT_THRESHOLD,
+                feedback=reply,
+            )
+        )
+        state = (
+            db.query(models.SkillState)
+            .filter_by(user_id=user.id, skill_id=question.skill_id)
+            .first()
+        )
+        if state is not None:
+            _update_schedule(state, score, score >= CORRECT_THRESHOLD)
+        db.commit()
+
+    return {"reply": reply, "solved": solved, "score": score}
+
+
 def assist(
     db: Session, journey_id: str, question_id: str, kind: str
 ) -> str:

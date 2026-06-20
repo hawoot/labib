@@ -122,6 +122,23 @@ class AttemptResultOut(BaseModel):
     mastery: float | None
 
 
+class ChatMessage(BaseModel):
+    role: str  # 'user' | 'assistant'
+    text: str = ""
+    image: str | None = None  # base64-encoded image bytes
+    image_media_type: str = "image/jpeg"
+
+
+class ChatIn(BaseModel):
+    messages: list[ChatMessage]
+
+
+class ChatOut(BaseModel):
+    reply: str
+    solved: bool
+    score: float
+
+
 class AssistIn(BaseModel):
     # 'hint'   -> how to approach THIS problem, without giving the answer
     # 'basics' -> step back and explain the prerequisite basics
