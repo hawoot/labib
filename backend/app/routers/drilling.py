@@ -12,6 +12,8 @@ from ..schemas import (
     AssistOut,
     AttemptCreate,
     AttemptResultOut,
+    ChatIn,
+    ChatOut,
     ProgressItem,
     ProgressOut,
     RevealOut,
@@ -58,6 +60,32 @@ def submit_attempt(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return AttemptResultOut(**result)
+
+
+@router.post("/questions/{question_id}/chat", response_model=ChatOut)
+def chat(
+    journey_id: str,
+    question_id: str,
+    payload: ChatIn,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    get_owned_journey(journey_id, user, db)
+    history: list[dict] = []
+    for m in payload.messages:
+        if m.image:
+            content: object = [
+                {"type": "text", "text": m.text},
+                {"type": "image", "data": m.image, "media_type": m.image_media_type},
+            ]
+        else:
+            content = m.text
+        history.append({"role": m.role, "content": content})
+    try:
+        result = drilling.chat_turn(db, user, journey_id, question_id, history)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return ChatOut(**result)
 
 
 @router.post("/questions/{question_id}/assist", response_model=AssistOut)

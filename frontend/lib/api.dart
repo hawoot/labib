@@ -269,4 +269,13 @@ class Api {
   /// Give up: records the question as not-done and returns the answer.
   static Future<Map<String, dynamic>> reveal(String jid, String questionId) async =>
       _asMap(await _post('/journeys/$jid/questions/$questionId/reveal'));
+
+  /// One turn of the per-question tutor chat. [messages] is the full
+  /// conversation so far — each {role: 'user'|'assistant', text, image?} —
+  /// sent every turn so the tutor keeps full context. Returns
+  /// {reply, solved, score}.
+  static Future<Map<String, dynamic>> chat(
+          String jid, String questionId, List<Map<String, dynamic>> messages) async =>
+      _asMap(await _post('/journeys/$jid/questions/$questionId/chat',
+          {'messages': messages}));
 }
