@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../api.dart';
 import '../prefs.dart';
+import '../streak.dart';
 import '../theme.dart';
 import '../widgets/answer_input.dart';
 
@@ -109,6 +110,7 @@ class _DrillScreenState extends State<DrillScreen> {
         imageMediaType: _image?.mediaType ?? 'image/jpeg',
       );
       HapticFeedback.lightImpact();
+      await Streak.recordAnswered(1); // counts toward the daily goal
       setState(() {
         _result = res;
         if (res['correct'] == true) _correct++;

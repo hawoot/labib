@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../api.dart';
 import '../prefs.dart';
+import '../streak.dart';
 import '../theme.dart';
 
 const Color _magenta = Color(0xFFC13BFF);
@@ -28,6 +29,9 @@ class _ProfileTabState extends State<ProfileTab> {
   List<String> _focusIds = const [];
   DateTime? _focusUntil;
 
+  int _goal = Streak.defaultGoal;
+  int _window = Streak.defaultWindow;
+
   static const _durations = <(String, Duration)>[
     ('3 hours', Duration(hours: 3)),
     ('1 day', Duration(days: 1)),
@@ -52,6 +56,8 @@ class _ProfileTabState extends State<ProfileTab> {
     final js = await Api.listJourneys();
     _focusIds = await Prefs.activeFocus();
     _focusUntil = await Prefs.focusUntil();
+    _goal = await Streak.goal();
+    _window = await Streak.window();
     if (mounted) {
       setState(() {
         _journeys = [for (final j in js) Map<String, dynamic>.from(j as Map)];
@@ -142,6 +148,44 @@ class _ProfileTabState extends State<ProfileTab> {
             _activeFocusCard()
           else
             _focusEditor(),
+
+          const Divider(height: Space.xxl + Space.lg),
+
+          // --- Daily goal & streak window ---------------------------------
+          Text('Daily goal & streak',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: Space.xs),
+          Text(
+            'Your streak grows each day you hit the goal. The window is your '
+            'cushion — bank ahead before a break, or catch up after one, up to '
+            'this many days either way.',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: Space.md),
+          _Stepper(
+            label: 'Questions a day',
+            value: _goal,
+            min: 1,
+            max: 50,
+            onChanged: (v) async {
+              await Streak.setGoal(v);
+              setState(() => _goal = v);
+            },
+          ),
+          const SizedBox(height: Space.sm),
+          _Stepper(
+            label: 'Window (days)',
+            value: _window,
+            min: 1,
+            max: 30,
+            onChanged: (v) async {
+              await Streak.setWindow(v);
+              setState(() => _window = v);
+            },
+          ),
 
           const Divider(height: Space.xxl + Space.lg),
 
@@ -306,6 +350,60 @@ class _ProfileTabState extends State<ProfileTab> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A simple −/+ number stepper for the daily goal and window settings.
+class _Stepper extends StatelessWidget {
+  const _Stepper({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int value;
+  final int min;
+  final int max;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: Space.lg, vertical: Space.sm),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardTheme.color,
+        borderRadius: BorderRadius.circular(Radii.card),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: 0.6)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label,
+                style: Theme.of(context).textTheme.titleSmall),
+          ),
+          IconButton(
+            onPressed: value > min ? () => onChanged(value - 1) : null,
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+          SizedBox(
+            width: 32,
+            child: Text('$value',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w800)),
+          ),
+          IconButton(
+            onPressed: value < max ? () => onChanged(value + 1) : null,
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
     );
   }
 }

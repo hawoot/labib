@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../api.dart';
 import '../prefs.dart';
+import '../streak.dart';
 import '../theme.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/pressable.dart';
@@ -33,17 +34,7 @@ class _JourneysScreenState extends State<JourneysScreen> {
   List<String> _focusIds = const [];
   DateTime? _focusUntil;
 
-  /// Total skills due across all active journeys — the daily driver shown in
-  /// the hero. Null while loading or in the archived view.
-  int? get _dueTotal {
-    if (_journeys == null || _showArchived) return null;
-    var n = 0;
-    for (final j in _journeys!) {
-      final p = j['progress'] as Map<String, dynamic>?;
-      if (p != null) n += (p['due'] as num?)?.toInt() ?? 0;
-    }
-    return n;
-  }
+  StreakStatus? _streak;
 
   @override
   void initState() {
@@ -57,6 +48,7 @@ class _JourneysScreenState extends State<JourneysScreen> {
       await Api.ensureUser();
       _focusIds = await Prefs.activeFocus();
       _focusUntil = await Prefs.focusUntil();
+      _streak = await Streak.status();
       final js = _showArchived
           ? [
               for (final j in await Api.listJourneys(archived: true))
@@ -289,7 +281,7 @@ class _JourneysScreenState extends State<JourneysScreen> {
         padding: const EdgeInsets.fromLTRB(Space.lg, Space.lg, Space.lg, 96),
         children: [
           if (!_showArchived) ...[
-            _TodayHero(due: _dueTotal, onLetsGo: _letsGo),
+            _TodayHero(streak: _streak, onLetsGo: _letsGo),
             if (_focusIds.isNotEmpty && _focusUntil != null) ...[
               const SizedBox(height: Space.md),
               _FocusBanner(
@@ -361,27 +353,31 @@ class _JourneysScreenState extends State<JourneysScreen> {
 
 /// The "today" hero: how much is due across all journeys right now, with the
 /// one big action — Let's go. Uses the violet→magenta brand gradient.
+/// The Home hero: today's progress toward your daily goal, your 🔥 streak, and
+/// a clear ahead (green) / behind (red) box. Then the one action — Let's go.
 class _TodayHero extends StatelessWidget {
-  const _TodayHero({required this.due, required this.onLetsGo});
+  const _TodayHero({required this.streak, required this.onLetsGo});
 
-  /// Total due across journeys; null while progress is still loading.
-  final int? due;
+  /// Null while loading.
+  final StreakStatus? streak;
   final VoidCallback onLetsGo;
+
+  static const _wk = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  static const _mo = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+  ];
+  static String _shortDate(DateTime d) =>
+      '${_wk[d.weekday - 1]} ${d.day} ${_mo[d.month - 1]}';
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final n = due;
-    final headline = n == null
-        ? '…'
-        : n == 0
-            ? 'All caught up'
-            : '$n';
-    final sub = n == null
-        ? 'Checking what’s due…'
-        : n == 0
-            ? 'Nothing due right now — get ahead with a quick session.'
-            : 'to revisit today, across your journeys';
+    final s = streak;
+    final goal = s?.goal ?? Streak.defaultGoal;
+    final count = s?.todayCount ?? 0;
+    final met = s?.metToday ?? false;
+    final progress = (count / goal).clamp(0.0, 1.0);
 
     return Container(
       padding: const EdgeInsets.all(Space.xl),
@@ -401,21 +397,66 @@ class _TodayHero extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            headline,
-            style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -1.5,
-                  height: 1.0,
-                ),
+          // Streak + today's count.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                s == null ? '…' : (met ? 'Done for today ✓' : '$count / $goal'),
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -1.0,
+                      height: 1.0,
+                    ),
+              ),
+              const Spacer(),
+              if (s != null && s.displayStreak > 0)
+                Text('🔥 ${s.displayStreak}',
+                    style: const TextStyle(
+                        fontSize: 18, fontWeight: FontWeight.w800)),
+            ],
           ),
-          const SizedBox(height: Space.xs),
+          const SizedBox(height: 2),
           Text(
-            sub,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            s == null
+                ? 'Loading your streak…'
+                : met
+                    ? 'Daily goal done — keep going to bank ahead.'
+                    : 'questions today toward your daily goal',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: scheme.onSurfaceVariant,
                 ),
           ),
+          const SizedBox(height: Space.md),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 7,
+              backgroundColor: scheme.surfaceContainerHighest,
+              valueColor: const AlwaysStoppedAnimation(brandSeed),
+            ),
+          ),
+
+          // Ahead (green) / behind (red) status box.
+          if (s != null && s.isAhead) ...[
+            const SizedBox(height: Space.md),
+            _StatusBox(
+              color: const Color(0xFF22C55E),
+              icon: Icons.bolt,
+              text: '${s.bankedDays} day${s.bankedDays == 1 ? '' : 's'} banked ahead'
+                  ' — your streak is safe.',
+            ),
+          ] else if (s != null && s.isBehind) ...[
+            const SizedBox(height: Space.md),
+            _StatusBox(
+              color: const Color(0xFFEF4444),
+              icon: Icons.warning_amber_rounded,
+              text: 'Behind by ${s.behindBy} — answer them by '
+                  '${_shortDate(s.catchUpBy)} to keep your streak.',
+            ),
+          ],
+
           const SizedBox(height: Space.lg),
           SizedBox(
             width: double.infinity,
@@ -444,6 +485,41 @@ class _TodayHero extends StatelessWidget {
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The green (ahead) / red (behind) streak status box.
+class _StatusBox extends StatelessWidget {
+  const _StatusBox({required this.color, required this.icon, required this.text});
+  final Color color;
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: Space.md, vertical: Space.sm + 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(Radii.control),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: Space.sm),
+          Expanded(
+            child: Text(text,
+                style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                    height: 1.3)),
           ),
         ],
       ),
