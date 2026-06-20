@@ -1,6 +1,10 @@
 # Secrets — NEVER commit this
 .env
 
+# Local data (SQLite DB + uploaded files)
+*.db
+data/
+
 # Python
 __pycache__/
 *.py[cod]

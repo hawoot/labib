@@ -14,13 +14,25 @@ class Settings(BaseSettings):
     # --- App ---
     app_env: str = "dev"
     secret_key: str = "dev-secret-change-me"
+    # If set, the /debug/* inspection endpoints require this value in the
+    # `X-Debug-Key` header. If empty, /debug/* is open (fine for a private box).
+    debug_key: str = ""
 
-    # --- Database (Postgres + pgvector) ---
+    # --- Database ---
+    # Full override. If set, it wins (e.g. SQLite for an in-container deploy:
+    # DATABASE_URL=sqlite:////home/node/apps/labib/labib.db). If empty, the URL
+    # is built from the POSTGRES_* parts below (the docker-compose / VPS path).
+    database_url: str = ""
+
     postgres_user: str = "labib"
     postgres_password: str = "labib"
     postgres_db: str = "labib"
     postgres_host: str = "db"
     postgres_port: int = 5432
+
+    # --- File storage (uploaded documents) ---
+    # Local disk in dev; swap for S3/R2 later behind the same interface.
+    storage_dir: str = "./data/uploads"
 
     # --- LLM ("the AI brain") ---
     # provider: "openai_compatible" (OpenRouter/DeepSeek/OpenAI/Ollama/...) or "anthropic"
@@ -30,7 +42,9 @@ class Settings(BaseSettings):
     llm_model: str = "deepseek/deepseek-chat"
 
     @property
-    def database_url(self) -> str:
+    def sqlalchemy_url(self) -> str:
+        if self.database_url:
+            return self.database_url
         return (
             f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
