@@ -1,8 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api.dart';
 import '../theme.dart';
+import '../widgets/answer_input.dart';
 
 const Color _magenta = Color(0xFFC13BFF);
 
@@ -30,6 +33,7 @@ class _DrillScreenState extends State<DrillScreen> {
   int _correct = 0;
   int _skipped = 0;
   final _answer = TextEditingController();
+  AnswerImage? _image; // optional photo answer for the current question
   Map<String, dynamic>? _result; // grading of the current question
   bool _submitting = false;
   String? _error;
@@ -64,6 +68,7 @@ class _DrillScreenState extends State<DrillScreen> {
         _skipped = 0;
         _result = null;
         _answer.clear();
+        _image = null;
       });
     } catch (e) {
       setState(() => _error = '$e');
@@ -72,11 +77,16 @@ class _DrillScreenState extends State<DrillScreen> {
 
   Future<void> _submit() async {
     final item = _items![_index] as Map<String, dynamic>;
-    if (_answer.text.trim().isEmpty) return;
+    if (_answer.text.trim().isEmpty && _image == null) return;
     setState(() => _submitting = true);
     try {
       final res = await Api.submitAttempt(
-          widget.journeyId, item['question_id'], _answer.text.trim());
+        widget.journeyId,
+        item['question_id'],
+        _answer.text.trim(),
+        imageBase64: _image == null ? null : base64Encode(_image!.bytes),
+        imageMediaType: _image?.mediaType ?? 'image/jpeg',
+      );
       HapticFeedback.lightImpact();
       setState(() {
         _result = res;
@@ -97,6 +107,7 @@ class _DrillScreenState extends State<DrillScreen> {
       _index++;
       _result = null;
       _answer.clear();
+      _image = null;
     });
   }
 
@@ -105,6 +116,7 @@ class _DrillScreenState extends State<DrillScreen> {
       _index++;
       _result = null;
       _answer.clear();
+      _image = null;
     });
   }
 
@@ -178,13 +190,11 @@ class _DrillScreenState extends State<DrillScreen> {
                 .titleLarge
                 ?.copyWith(height: 1.3)),
         const SizedBox(height: Space.xl),
-        TextField(
+        AnswerInput(
           controller: _answer,
-          enabled: result == null,
-          autofocus: result == null,
-          minLines: 2,
-          maxLines: 6,
-          decoration: const InputDecoration(labelText: 'Your answer'),
+          enabled: result == null && !_submitting,
+          image: _image,
+          onImageChanged: (img) => setState(() => _image = img),
         ),
         const SizedBox(height: Space.lg),
         if (result == null)

@@ -143,15 +143,36 @@ def build_session(
 
 
 def _grade_answer(
-    skill: models.Skill | None, question: models.Question, answer: str
+    skill: models.Skill | None,
+    question: models.Question,
+    answer: str,
+    image: tuple[str, str] | None = None,
 ) -> tuple[bool, float, bool, str]:
     """Grade an answer with the LLM.
+
+    `image`, when given, is (base64_data, media_type) — e.g. a photo of the
+    student's worked-out solution — and is sent to the model alongside the text.
 
     Returns (graded, score, correct, feedback). If the LLM is unavailable or
     returns junk, we DON'T fail the request — we return graded=False so the
     caller records the attempt and shows the reference answer instead of losing
     the student's work. The study loop must survive a flaky model.
     """
+    text = (
+        f"SKILL: {skill.name if skill else ''}\n"
+        f"QUESTION: {question.prompt}\n"
+        f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n"
+        f"STUDENT ANSWER: {answer or '(see attached photo)'}\n\n"
+        'Grade it. Produce JSON {"score": number 0..1, '
+        '"correct": boolean, "feedback": "1-2 sentences, encouraging, '
+        'correcting any mistakes"}.'
+    )
+    user_content: object = text
+    if image is not None:
+        user_content = [
+            {"type": "text", "text": text},
+            {"type": "image", "data": image[0], "media_type": image[1]},
+        ]
     try:
         grade = complete_json(
             [
@@ -160,18 +181,7 @@ def _grade_answer(
                     "content": "You are a supportive tutor grading a student's answer. "
                     "Output STRICT JSON only.",
                 },
-                {
-                    "role": "user",
-                    "content": (
-                        f"SKILL: {skill.name if skill else ''}\n"
-                        f"QUESTION: {question.prompt}\n"
-                        f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n"
-                        f"STUDENT ANSWER: {answer}\n\n"
-                        'Grade it. Produce JSON {"score": number 0..1, '
-                        '"correct": boolean, "feedback": "1-2 sentences, encouraging, '
-                        'correcting any mistakes"}.'
-                    ),
-                },
+                {"role": "user", "content": user_content},
             ],
             max_tokens=2000,
         )
@@ -194,7 +204,12 @@ def _grade_answer(
 
 
 def mark_attempt(
-    db: Session, user: models.User, journey_id: str, question_id: str, answer: str
+    db: Session,
+    user: models.User,
+    journey_id: str,
+    question_id: str,
+    answer: str,
+    image: tuple[str, str] | None = None,
 ) -> dict:
     """Grade an answer, record the attempt, and (only if graded) update schedule."""
     question = db.get(models.Question, question_id)
@@ -202,7 +217,7 @@ def mark_attempt(
         raise ValueError("Question not found in this journey.")
     skill = db.get(models.Skill, question.skill_id)
 
-    graded, score, correct, feedback = _grade_answer(skill, question, answer)
+    graded, score, correct, feedback = _grade_answer(skill, question, answer, image)
 
     db.add(
         models.Attempt(
@@ -210,7 +225,7 @@ def mark_attempt(
             journey_id=journey_id,
             skill_id=question.skill_id,
             question_id=question_id,
-            user_answer=answer,
+            user_answer=answer or "(photo answer)",
             score=score,
             correct=correct,
             feedback=feedback,

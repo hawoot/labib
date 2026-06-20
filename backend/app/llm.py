@@ -19,7 +19,52 @@ from .config import Settings, get_settings
 class LLMProvider(ABC):
     @abstractmethod
     def complete(self, messages: list[dict], **kwargs) -> str:
-        """Take chat messages [{role, content}, ...], return the reply text."""
+        """Take chat messages [{role, content}, ...], return the reply text.
+
+        A message's `content` is normally a string, but may be a list of parts
+        to send an image alongside text:
+            {"type": "text", "text": "..."}
+            {"type": "image", "data": "<base64>", "media_type": "image/jpeg"}
+        Each provider translates those parts into its own wire format, so
+        callers stay provider-agnostic.
+        """
+
+
+def _to_openai_content(content):
+    """Normalize our content parts to OpenAI's multimodal format."""
+    if isinstance(content, str):
+        return content
+    out = []
+    for p in content:
+        if p.get("type") == "image":
+            mt = p.get("media_type", "image/jpeg")
+            out.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{mt};base64,{p['data']}"},
+            })
+        else:
+            out.append({"type": "text", "text": p.get("text", "")})
+    return out
+
+
+def _to_anthropic_content(content):
+    """Normalize our content parts to Anthropic's block format."""
+    if isinstance(content, str):
+        return content
+    out = []
+    for p in content:
+        if p.get("type") == "image":
+            out.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": p.get("media_type", "image/jpeg"),
+                    "data": p["data"],
+                },
+            })
+        else:
+            out.append({"type": "text", "text": p.get("text", "")})
+    return out
 
 
 class OpenAICompatibleProvider(LLMProvider):
@@ -32,8 +77,9 @@ class OpenAICompatibleProvider(LLMProvider):
         self.model = s.llm_model
 
     def complete(self, messages: list[dict], **kwargs) -> str:
+        msgs = [{**m, "content": _to_openai_content(m["content"])} for m in messages]
         resp = self.client.chat.completions.create(
-            model=self.model, messages=messages, **kwargs
+            model=self.model, messages=msgs, **kwargs
         )
         return resp.choices[0].message.content or ""
 
@@ -48,8 +94,16 @@ class AnthropicProvider(LLMProvider):
         self.model = s.llm_model
 
     def complete(self, messages: list[dict], **kwargs) -> str:
-        system = "\n".join(m["content"] for m in messages if m["role"] == "system")
-        convo = [m for m in messages if m["role"] != "system"]
+        system = "\n".join(
+            m["content"]
+            for m in messages
+            if m["role"] == "system" and isinstance(m["content"], str)
+        )
+        convo = [
+            {**m, "content": _to_anthropic_content(m["content"])}
+            for m in messages
+            if m["role"] != "system"
+        ]
         resp = self.client.messages.create(
             model=self.model,
             system=system or None,

@@ -43,9 +43,14 @@ def submit_attempt(
     db: Session = Depends(get_db),
 ):
     get_owned_journey(journey_id, user, db)
+    if not payload.answer.strip() and not payload.image:
+        raise HTTPException(status_code=422, detail="Provide an answer or a photo.")
+    image = (
+        (payload.image, payload.image_media_type) if payload.image else None
+    )
     try:
         result = drilling.mark_attempt(
-            db, user, journey_id, payload.question_id, payload.answer
+            db, user, journey_id, payload.question_id, payload.answer, image
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
