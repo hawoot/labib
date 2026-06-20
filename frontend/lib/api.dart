@@ -152,6 +152,31 @@ class Api {
   static Future<List<dynamic>> listJourneys({bool archived = false}) async =>
       _asList(await _get('/journeys${archived ? '?archived=true' : ''}'));
 
+  /// Active journeys, each annotated with a `progress` map (due / mastered /
+  /// skill_count) from [getProgress]. Progress fetches run in parallel — fine
+  /// for the handful of journeys a user has — and a failure on any one journey
+  /// leaves its `progress` null rather than failing the whole list.
+  ///
+  /// This is what powers the Home "due today" hero and the Progress tab until a
+  /// dedicated aggregate endpoint exists.
+  static Future<List<Map<String, dynamic>>> journeysWithProgress() async {
+    final js = await listJourneys();
+    final progs = await Future.wait(js.map((j) async {
+      try {
+        return await getProgress((j as Map)['id'] as String);
+      } catch (_) {
+        return null;
+      }
+    }));
+    return [
+      for (var i = 0; i < js.length; i++)
+        {
+          ...Map<String, dynamic>.from(js[i] as Map),
+          'progress': progs[i],
+        }
+    ];
+  }
+
   static Future<Map<String, dynamic>> createJourney(
           String title, String intent) async =>
       _asMap(await _post('/journeys', {'title': title, 'intent': intent}));

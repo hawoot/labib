@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../api.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/pressable.dart';
-import 'journeys_screen.dart';
+import 'home_shell.dart';
 
 // Landing palette — always dark, independent of the app theme, so the first
 // impression is the premium look from the design mockup.
@@ -30,7 +30,7 @@ class _LandingScreenState extends State<LandingScreen> {
   void _goHome() {
     Navigator.pushReplacement(
       context,
-      AppPageRoute(builder: (_) => const JourneysScreen()),
+      AppPageRoute(builder: (_) => const HomeShell()),
     );
   }
 
