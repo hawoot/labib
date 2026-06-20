@@ -10,7 +10,6 @@ import datetime
 import logging
 import random
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from . import models
@@ -20,6 +19,16 @@ logger = logging.getLogger(__name__)
 
 # Default mode mix (a future knob). Weights for choosing which question to show.
 MODE_WEIGHTS = {"on_the_go": 0.4, "short_drill": 0.4, "deep_dive": 0.2}
+
+# Weights for the next-question scorer. Each candidate skill gets a priority
+# score = Σ weight·signal; the session is the top-scoring skills. These are the
+# defaults — they become the per-journey "knobs" from the feature-queue design.
+SELECT_WEIGHTS = {
+    "overdue": 1.0,   # how far past its due date (spaced repetition)
+    "weak": 1.0,      # 1 − mastery: shaky skills first
+    "new": 0.6,       # never-seen skills get a leg up so you keep progressing
+    "recency": 0.3,   # nudge up things you haven't touched in a while
+}
 
 # Intensity (chosen in the "Let's go" launcher) maps to which question modes are
 # allowed. "On the go" keeps it light and quick — nothing that needs paper;
@@ -94,6 +103,53 @@ def _pick_question(
     return random.choices(questions, weights=weights, k=1)[0]
 
 
+def _aware(dt: datetime.datetime) -> datetime.datetime:
+    """SQLite hands back naive datetimes; treat stored times as UTC."""
+    return dt.replace(tzinfo=datetime.timezone.utc) if dt.tzinfo is None else dt
+
+
+def _recent_accuracy(
+    db: Session, user: models.User, journey_id: str, n: int = 10
+) -> float | None:
+    """Mean correctness over the last `n` attempts in this journey, or None if
+    there's too little history to adapt on."""
+    recent = (
+        db.query(models.Attempt.correct)
+        .filter_by(user_id=user.id, journey_id=journey_id)
+        .order_by(models.Attempt.created_at.desc())
+        .limit(n)
+        .all()
+    )
+    if len(recent) < 4:
+        return None
+    return sum(1 for (c,) in recent if c) / len(recent)
+
+
+def _skill_score(
+    st: models.SkillState, now: datetime.datetime, weights: dict[str, float]
+) -> float:
+    """Priority score for a skill: higher = more worth practising now."""
+    due = _aware(st.due_at)
+    if due <= now:
+        overdue_days = (now - due).total_seconds() / 86400
+        overdue = min(overdue_days / max(st.interval_days, 1.0), 3.0)  # 0..3
+    else:
+        overdue = 0.0
+    weak = max(0.0, 1.0 - st.mastery)  # 0..1
+    new = 1.0 if st.reps == 0 else 0.0
+    if st.last_reviewed is not None:
+        idle_days = (now - _aware(st.last_reviewed)).total_seconds() / 86400
+        recency = min(idle_days / 14.0, 1.0)  # saturates after ~2 weeks
+    else:
+        recency = 1.0
+    return (
+        weights["overdue"] * overdue
+        + weights["weak"] * weak
+        + weights["new"] * new
+        + weights["recency"] * recency
+    )
+
+
 def build_session(
     db: Session,
     user: models.User,
@@ -101,30 +157,57 @@ def build_session(
     limit: int,
     intensity: str | None = None,
 ) -> list[dict]:
-    """Return up to `limit` questions to drill now: due skills first, then by lowest mastery.
+    """Pick up to `limit` skills to practise now, by a weighted priority score
+    (overdue + weakness + new + recency). Due/new skills come first; if there
+    aren't enough, we top up with the next-closest-to-due so you can always get
+    ahead (which also feeds the streak's bank-ahead). The score weights are
+    nudged by how you've been doing recently — answering well leans toward new
+    material, struggling leans toward reinforcing weak skills.
 
-    `intensity` ("on_the_go" / "deep_dive") narrows which question modes are
-    eligible; None keeps the default balanced mix.
+    `intensity` narrows which question modes are eligible for each skill.
     """
     allowed_modes = INTENSITY_MODES.get(intensity or "")
     ensure_enrollment(db, user, journey)
     now = _now()
-    states = (
+
+    # Adapt the weights to recent performance.
+    weights = dict(SELECT_WEIGHTS)
+    acc = _recent_accuracy(db, user, journey.id)
+    if acc is not None:
+        if acc >= 0.8:        # cruising — introduce more new/forward material
+            weights["new"] *= 1.6
+            weights["recency"] *= 1.3
+        elif acc <= 0.4:      # struggling — double down on the shaky skills
+            weights["weak"] *= 1.6
+            weights["new"] *= 0.5
+
+    all_states = (
         db.query(models.SkillState)
         .filter_by(user_id=user.id, journey_id=journey.id)
-        .filter(or_(models.SkillState.due_at <= now, models.SkillState.reps == 0))
-        .order_by(models.SkillState.due_at.asc(), models.SkillState.mastery.asc())
-        .limit(limit)
         .all()
     )
+    scored = sorted(
+        all_states, key=lambda st: _skill_score(st, now, weights), reverse=True
+    )
+    # Prefer skills that are actually due or never seen; only top up with
+    # not-yet-due skills if we'd otherwise be short of a full session.
+    due_or_new = [
+        st for st in scored
+        if _aware(st.due_at) <= now or st.reps == 0
+    ]
+    chosen = due_or_new[:limit]
+    if len(chosen) < limit:
+        extra = [st for st in scored if st not in chosen]
+        chosen += extra[: limit - len(chosen)]
+
     skill_by_id = {
         s.id: s
         for s in db.query(models.Skill).filter(
-            models.Skill.id.in_([st.skill_id for st in states] or [""])
+            models.Skill.id.in_([st.skill_id for st in chosen] or [""])
         )
     }
     session: list[dict] = []
-    for st in states:
+    for st in chosen:
         q = _pick_question(
             db, st.skill_id, journey.curriculum_version, allowed_modes
         )

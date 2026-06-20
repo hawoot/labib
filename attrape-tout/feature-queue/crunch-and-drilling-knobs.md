@@ -33,9 +33,33 @@ knob is user-adjustable per journey.
 
 ---
 
+## Knob 4 — Next-question selection (weighted scorer)  ✅ *implemented*
+Replaces the old flat "due-first, then weakest" sort with a **weighted priority
+score** per candidate skill (in `drilling.build_session` / `_skill_score`):
+
+```
+score = w_overdue · overdue      # days past due ÷ interval, capped at 3
+      + w_weak    · (1 − mastery) # shaky skills first
+      + w_new     · isNew         # never-seen skills get a leg up
+      + w_recency · idleness      # haven't touched it in a while (→1 over ~2 weeks)
+```
+
+- **Defaults** (`SELECT_WEIGHTS`): overdue 1.0, weak 1.0, new 0.6, recency 0.3.
+  These are the knobs — meant to become per-journey adjustable.
+- **Pool:** due-or-new skills first; if a session would be short, top up with the
+  next-closest-to-due so you can always get ahead (this also feeds the streak's
+  **bank-ahead**).
+- **Mode/intensity:** the chosen intensity still filters which question mode is
+  served for each picked skill (Knob 1).
+- **Adaptive:** weights are nudged by recent accuracy (last ~10 attempts) —
+  ≥80% correct leans toward **new** material; ≤40% leans toward reinforcing
+  **weak** skills.
+- *Not yet:* multiple questions per skill in one session (so no intra-session
+  interleaving needed yet); time-based pacing (Knob 3).
+
 ## Where each knob lives
 - **Crunch-time:** depth → skill granularity + which modes to generate.
-- **Runtime (drilling):** mode mix, daily budget, pacing/deadline.
+- **Runtime (drilling):** mode mix, daily budget, pacing/deadline, **selection weights**.
 
 ## Open questions
 - Default depth per material type (novel vs textbook) — infer from the journey's `intent`?
