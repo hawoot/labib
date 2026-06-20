@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api.dart';
+import '../prefs.dart';
 import '../theme.dart';
 import '../widgets/app_motion.dart';
 import '../widgets/pressable.dart';
@@ -28,6 +29,10 @@ class _JourneysScreenState extends State<JourneysScreen> {
   String? _error;
   bool _showArchived = false;
 
+  /// Active focus (set in Profile): journeys to prioritise, and when it ends.
+  List<String> _focusIds = const [];
+  DateTime? _focusUntil;
+
   /// Total skills due across all active journeys — the daily driver shown in
   /// the hero. Null while loading or in the archived view.
   int? get _dueTotal {
@@ -50,6 +55,8 @@ class _JourneysScreenState extends State<JourneysScreen> {
     setState(() => _error = null);
     try {
       await Api.ensureUser();
+      _focusIds = await Prefs.activeFocus();
+      _focusUntil = await Prefs.focusUntil();
       final js = _showArchived
           ? [
               for (final j in await Api.listJourneys(archived: true))
@@ -62,41 +69,58 @@ class _JourneysScreenState extends State<JourneysScreen> {
     }
   }
 
-  /// "Let's go": start the most-pressing session right now. Picks the active
-  /// journey with the most due skills; if nothing's due, the first journey
-  /// that's ready to drill. (A true cross-journey session comes later.)
-  void _letsGo() {
+  /// Drillable journeys: ready, or already have skills to practise.
+  List<Map<String, dynamic>> get _drillable => [
+        for (final j in _journeys ?? const [])
+          if (j['status'] == 'ready' ||
+              ((j['progress'] as Map<String, dynamic>?)?['skill_count'] as num?
+                      ?? 0) >
+                  0)
+            j
+      ];
+
+  /// "Let's go": instant. No questions asked — straight into a session using
+  /// the last-used intensity, on the most-due journey (within the active focus,
+  /// if one is set in Profile). Intensity can be changed inside the drill.
+  Future<void> _letsGo() async {
     HapticFeedback.selectionClick();
-    final active = _journeys ?? const [];
-    Map<String, dynamic>? best;
-    var bestDue = -1;
-    for (final j in active) {
-      final p = j['progress'] as Map<String, dynamic>?;
-      final due = (p?['due'] as num?)?.toInt() ?? 0;
-      final ready = j['status'] == 'ready' || (p?['skill_count'] as num? ?? 0) > 0;
-      if (!ready) continue;
-      if (due > bestDue) {
-        bestDue = due;
-        best = j;
-      }
-    }
-    if (best == null) {
+    var drillable = _drillable;
+    if (drillable.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Add material to a journey first, then come back to drill.'),
+          content:
+              Text('Add material to a journey first, then come back to drill.'),
         ),
       );
       return;
     }
-    Navigator.push(
+    // Honour an active focus when it overlaps something drillable.
+    if (_focusIds.isNotEmpty) {
+      final focused =
+          drillable.where((j) => _focusIds.contains(j['id'])).toList();
+      if (focused.isNotEmpty) drillable = focused;
+    }
+    // Most due first.
+    drillable.sort((a, b) {
+      int due(Map<String, dynamic> j) =>
+          ((j['progress'] as Map<String, dynamic>?)?['due'] as num?)?.toInt() ??
+          0;
+      return due(b).compareTo(due(a));
+    });
+    final target = drillable.first;
+    final intensity = await Prefs.intensity();
+    if (!mounted) return;
+    await Navigator.push(
       context,
       AppPageRoute(
         builder: (_) => DrillScreen(
-          journeyId: best!['id'] as String,
-          title: best['title'] as String? ?? 'Journey',
+          journeyId: target['id'] as String,
+          title: target['title'] as String? ?? 'Journey',
+          intensity: intensity,
         ),
       ),
-    ).then((_) => _load());
+    );
+    await _load();
   }
 
   Future<void> _archive(String jid) async {
@@ -266,6 +290,15 @@ class _JourneysScreenState extends State<JourneysScreen> {
         children: [
           if (!_showArchived) ...[
             _TodayHero(due: _dueTotal, onLetsGo: _letsGo),
+            if (_focusIds.isNotEmpty && _focusUntil != null) ...[
+              const SizedBox(height: Space.md),
+              _FocusBanner(
+                count: _focusIds
+                    .where((id) => _journeys!.any((j) => j['id'] == id))
+                    .length,
+                until: _focusUntil!,
+              ),
+            ],
             const SizedBox(height: Space.xl),
             Padding(
               padding: const EdgeInsets.only(left: Space.xs, bottom: Space.sm),
@@ -412,6 +445,55 @@ class _TodayHero extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A quiet banner shown while a temporary focus is active (set in Profile).
+class _FocusBanner extends StatelessWidget {
+  const _FocusBanner({required this.count, required this.until});
+  final int count;
+  final DateTime until;
+
+  String get _remaining {
+    final left = until.difference(DateTime.now());
+    if (left.inHours >= 24) {
+      final d = (left.inHours / 24).floor();
+      return '$d day${d == 1 ? '' : 's'} left';
+    }
+    if (left.inHours >= 1) return '${left.inHours}h left';
+    return '${left.inMinutes}m left';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+          horizontal: Space.lg, vertical: Space.md),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(Radii.control),
+        color: _magenta.withValues(alpha: 0.10),
+        border: Border.all(color: _magenta.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.center_focus_strong_outlined,
+              size: 18, color: _magenta),
+          const SizedBox(width: Space.sm),
+          Expanded(
+            child: Text(
+              'Focusing on $count journey${count == 1 ? '' : 's'} · $_remaining',
+              style: TextStyle(
+                  color: scheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13),
+            ),
+          ),
+          Text('Profile to change',
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 11)),
         ],
       ),
     );

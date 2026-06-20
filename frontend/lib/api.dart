@@ -239,13 +239,24 @@ class Api {
 
   // --- Drilling ------------------------------------------------------------
 
-  static Future<List<dynamic>> getSession(String jid) async =>
-      _asMap(await _get('/journeys/$jid/session'))['items'] as List<dynamic>;
+  static Future<List<dynamic>> getSession(String jid, {String? intensity}) async =>
+      _asMap(await _get('/journeys/$jid/session'
+          '${intensity != null ? '?intensity=$intensity' : ''}'))['items']
+          as List<dynamic>;
 
   static Future<Map<String, dynamic>> submitAttempt(
-          String jid, String questionId, String answer) async =>
-      _asMap(await _post(
-          '/journeys/$jid/attempts', {'question_id': questionId, 'answer': answer}));
+    String jid,
+    String questionId,
+    String answer, {
+    String? imageBase64,
+    String imageMediaType = 'image/jpeg',
+  }) async =>
+      _asMap(await _post('/journeys/$jid/attempts', {
+        'question_id': questionId,
+        'answer': answer,
+        if (imageBase64 != null) 'image': imageBase64,
+        if (imageBase64 != null) 'image_media_type': imageMediaType,
+      }));
 
   static Future<Map<String, dynamic>> getProgress(String jid) async =>
       _asMap(await _get('/journeys/$jid/progress'));

@@ -37,6 +37,10 @@ dependencies:
   http: ^1.2.0
   shared_preferences: ^2.2.0
   web: ^1.1.0
+  # Always-available answer inputs: speak (speech-to-text) or snap a photo of
+  # worked-out work (image capture/pick). Both work on mobile and web.
+  speech_to_text: ^7.0.0
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

@@ -106,7 +106,10 @@ class SessionOut(BaseModel):
 
 class AttemptCreate(BaseModel):
     question_id: str
-    answer: str = Field(min_length=1)
+    # Either a typed/spoken answer, an image (base64), or both.
+    answer: str = ""
+    image: str | None = None  # base64-encoded image bytes
+    image_media_type: str = "image/jpeg"
 
 
 class AttemptResultOut(BaseModel):

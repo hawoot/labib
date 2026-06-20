@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 
 # Default mode mix (a future knob). Weights for choosing which question to show.
 MODE_WEIGHTS = {"on_the_go": 0.4, "short_drill": 0.4, "deep_dive": 0.2}
+
+# Intensity (chosen in the "Let's go" launcher) maps to which question modes are
+# allowed. "On the go" keeps it light and quick — nothing that needs paper;
+# "Deep dive" leans into harder problem-solving. Unknown/None = the full mix.
+INTENSITY_MODES = {
+    "on_the_go": {"on_the_go", "short_drill"},
+    "deep_dive": {"deep_dive", "short_drill"},
+}
 DEFAULT_SESSION_SIZE = 8
 CORRECT_THRESHOLD = 0.6
 MASTERY_ALPHA = 0.4
@@ -64,7 +72,9 @@ def ensure_enrollment(db: Session, user: models.User, journey: models.Journey) -
     db.commit()
 
 
-def _pick_question(db: Session, skill_id: str, version: int) -> models.Question | None:
+def _pick_question(
+    db: Session, skill_id: str, version: int, allowed_modes: set[str] | None = None
+) -> models.Question | None:
     questions = (
         db.query(models.Question)
         .filter_by(skill_id=skill_id, curriculum_version=version)
@@ -72,15 +82,30 @@ def _pick_question(db: Session, skill_id: str, version: int) -> models.Question 
     )
     if not questions:
         return None
+    # If an intensity was chosen, prefer questions in its allowed modes — but
+    # fall back to the full set rather than show nothing for that skill.
+    if allowed_modes:
+        in_mode = [q for q in questions if q.mode in allowed_modes]
+        if in_mode:
+            questions = in_mode
     # Weight by the default mode mix, falling back to a uniform pick.
     weights = [MODE_WEIGHTS.get(q.mode, 0.1) for q in questions]
     return random.choices(questions, weights=weights, k=1)[0]
 
 
 def build_session(
-    db: Session, user: models.User, journey: models.Journey, limit: int
+    db: Session,
+    user: models.User,
+    journey: models.Journey,
+    limit: int,
+    intensity: str | None = None,
 ) -> list[dict]:
-    """Return up to `limit` questions to drill now: due skills first, then by lowest mastery."""
+    """Return up to `limit` questions to drill now: due skills first, then by lowest mastery.
+
+    `intensity` ("on_the_go" / "deep_dive") narrows which question modes are
+    eligible; None keeps the default balanced mix.
+    """
+    allowed_modes = INTENSITY_MODES.get(intensity or "")
     ensure_enrollment(db, user, journey)
     now = _now()
     states = (
@@ -99,7 +124,9 @@ def build_session(
     }
     session: list[dict] = []
     for st in states:
-        q = _pick_question(db, st.skill_id, journey.curriculum_version)
+        q = _pick_question(
+            db, st.skill_id, journey.curriculum_version, allowed_modes
+        )
         if q is None:
             continue
         skill = skill_by_id.get(st.skill_id)
@@ -116,15 +143,36 @@ def build_session(
 
 
 def _grade_answer(
-    skill: models.Skill | None, question: models.Question, answer: str
+    skill: models.Skill | None,
+    question: models.Question,
+    answer: str,
+    image: tuple[str, str] | None = None,
 ) -> tuple[bool, float, bool, str]:
     """Grade an answer with the LLM.
+
+    `image`, when given, is (base64_data, media_type) — e.g. a photo of the
+    student's worked-out solution — and is sent to the model alongside the text.
 
     Returns (graded, score, correct, feedback). If the LLM is unavailable or
     returns junk, we DON'T fail the request — we return graded=False so the
     caller records the attempt and shows the reference answer instead of losing
     the student's work. The study loop must survive a flaky model.
     """
+    text = (
+        f"SKILL: {skill.name if skill else ''}\n"
+        f"QUESTION: {question.prompt}\n"
+        f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n"
+        f"STUDENT ANSWER: {answer or '(see attached photo)'}\n\n"
+        'Grade it. Produce JSON {"score": number 0..1, '
+        '"correct": boolean, "feedback": "1-2 sentences, encouraging, '
+        'correcting any mistakes"}.'
+    )
+    user_content: object = text
+    if image is not None:
+        user_content = [
+            {"type": "text", "text": text},
+            {"type": "image", "data": image[0], "media_type": image[1]},
+        ]
     try:
         grade = complete_json(
             [
@@ -133,18 +181,7 @@ def _grade_answer(
                     "content": "You are a supportive tutor grading a student's answer. "
                     "Output STRICT JSON only.",
                 },
-                {
-                    "role": "user",
-                    "content": (
-                        f"SKILL: {skill.name if skill else ''}\n"
-                        f"QUESTION: {question.prompt}\n"
-                        f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n"
-                        f"STUDENT ANSWER: {answer}\n\n"
-                        'Grade it. Produce JSON {"score": number 0..1, '
-                        '"correct": boolean, "feedback": "1-2 sentences, encouraging, '
-                        'correcting any mistakes"}.'
-                    ),
-                },
+                {"role": "user", "content": user_content},
             ],
             max_tokens=2000,
         )
@@ -167,7 +204,12 @@ def _grade_answer(
 
 
 def mark_attempt(
-    db: Session, user: models.User, journey_id: str, question_id: str, answer: str
+    db: Session,
+    user: models.User,
+    journey_id: str,
+    question_id: str,
+    answer: str,
+    image: tuple[str, str] | None = None,
 ) -> dict:
     """Grade an answer, record the attempt, and (only if graded) update schedule."""
     question = db.get(models.Question, question_id)
@@ -175,7 +217,7 @@ def mark_attempt(
         raise ValueError("Question not found in this journey.")
     skill = db.get(models.Skill, question.skill_id)
 
-    graded, score, correct, feedback = _grade_answer(skill, question, answer)
+    graded, score, correct, feedback = _grade_answer(skill, question, answer, image)
 
     db.add(
         models.Attempt(
@@ -183,7 +225,7 @@ def mark_attempt(
             journey_id=journey_id,
             skill_id=question.skill_id,
             question_id=question_id,
-            user_answer=answer,
+            user_answer=answer or "(photo answer)",
             score=score,
             correct=correct,
             feedback=feedback,

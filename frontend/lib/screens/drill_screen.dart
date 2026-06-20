@@ -1,12 +1,28 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api.dart';
+import '../prefs.dart';
+import '../theme.dart';
+import '../widgets/answer_input.dart';
+
+const Color _magenta = Color(0xFFC13BFF);
 
 /// A study session: one question at a time, answer -> AI feedback -> next.
+/// [intensity] ('on_the_go' / 'deep_dive') is chosen in the launcher and tunes
+/// which kinds of questions the server hands back.
 class DrillScreen extends StatefulWidget {
-  const DrillScreen({super.key, required this.journeyId, required this.title});
+  const DrillScreen({
+    super.key,
+    required this.journeyId,
+    required this.title,
+    this.intensity,
+  });
   final String journeyId;
   final String title;
+  final String? intensity;
 
   @override
   State<DrillScreen> createState() => _DrillScreenState();
@@ -16,15 +32,38 @@ class _DrillScreenState extends State<DrillScreen> {
   List<dynamic>? _items;
   int _index = 0;
   int _correct = 0;
+  int _skipped = 0;
   final _answer = TextEditingController();
+  AnswerImage? _image; // optional photo answer for the current question
   Map<String, dynamic>? _result; // grading of the current question
   bool _submitting = false;
   String? _error;
 
+  /// Current intensity — starts from the launcher choice but can be switched
+  /// mid-session via the pill; the new value persists as the default.
+  String? _intensity;
+
+  String get _intensityLabel => switch (_intensity) {
+        'on_the_go' => 'On the go',
+        'deep_dive' => 'Deep dive',
+        _ => 'Mixed',
+      };
+
   @override
   void initState() {
     super.initState();
+    _intensity = widget.intensity;
     _load();
+  }
+
+  /// Switch intensity from inside the session: persist it as the new default
+  /// and pull a fresh set of questions at that intensity.
+  Future<void> _changeIntensity(String value) async {
+    if (value == _intensity) return;
+    HapticFeedback.selectionClick();
+    setState(() => _intensity = value);
+    await Prefs.setIntensity(value);
+    await _load();
   }
 
   @override
@@ -36,13 +75,16 @@ class _DrillScreenState extends State<DrillScreen> {
   Future<void> _load() async {
     setState(() => _error = null);
     try {
-      final items = await Api.getSession(widget.journeyId);
+      final items =
+          await Api.getSession(widget.journeyId, intensity: _intensity);
       setState(() {
         _items = items;
         _index = 0;
         _correct = 0;
+        _skipped = 0;
         _result = null;
         _answer.clear();
+        _image = null;
       });
     } catch (e) {
       setState(() => _error = '$e');
@@ -51,11 +93,17 @@ class _DrillScreenState extends State<DrillScreen> {
 
   Future<void> _submit() async {
     final item = _items![_index] as Map<String, dynamic>;
-    if (_answer.text.trim().isEmpty) return;
+    if (_answer.text.trim().isEmpty && _image == null) return;
     setState(() => _submitting = true);
     try {
       final res = await Api.submitAttempt(
-          widget.journeyId, item['question_id'], _answer.text.trim());
+        widget.journeyId,
+        item['question_id'],
+        _answer.text.trim(),
+        imageBase64: _image == null ? null : base64Encode(_image!.bytes),
+        imageMediaType: _image?.mediaType ?? 'image/jpeg',
+      );
+      HapticFeedback.lightImpact();
       setState(() {
         _result = res;
         if (res['correct'] == true) _correct++;
@@ -67,18 +115,44 @@ class _DrillScreenState extends State<DrillScreen> {
     }
   }
 
+  /// Skip this one — no penalty. (It stays due, so it'll come back around.)
+  void _skip() {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _skipped++;
+      _index++;
+      _result = null;
+      _answer.clear();
+      _image = null;
+    });
+  }
+
   void _next() {
     setState(() {
       _index++;
       _result = null;
       _answer.clear();
+      _image = null;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Study · ${widget.title}')),
+      appBar: AppBar(
+        title: Text(widget.title),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(3),
+          child: _items == null || _items!.isEmpty
+              ? const SizedBox(height: 3)
+              : LinearProgressIndicator(
+                  value: (_index / _items!.length).clamp(0.0, 1.0),
+                  minHeight: 3,
+                  backgroundColor: Colors.transparent,
+                  valueColor: const AlwaysStoppedAnimation(brandSeed),
+                ),
+        ),
+      ),
       body: _body(),
     );
   }
@@ -98,16 +172,7 @@ class _DrillScreenState extends State<DrillScreen> {
               child: const Text('Back')));
     }
     if (_index >= _items!.length) {
-      return _centered(
-        'Session complete!\nYou got $_correct of ${_items!.length} right.',
-        action: Wrap(spacing: 8, children: [
-          OutlinedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Done')),
-          FilledButton(
-              onPressed: _load, child: const Text('Another session')),
-        ]),
-      );
+      return _summary();
     }
     return _question();
   }
@@ -115,43 +180,64 @@ class _DrillScreenState extends State<DrillScreen> {
   Widget _question() {
     final item = _items![_index] as Map<String, dynamic>;
     final result = _result;
+    final scheme = Theme.of(context).colorScheme;
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(Space.lg),
       children: [
         Row(
           children: [
-            _modeBadge(item['mode'] as String?),
-            const SizedBox(width: 8),
+            _IntensitySwitcher(
+              label: _intensityLabel,
+              current: _intensity,
+              onChanged: _changeIntensity,
+            ),
+            const SizedBox(width: Space.sm),
             Expanded(
                 child: Text(item['skill_name'] ?? '',
-                    style: Theme.of(context).textTheme.labelLarge)),
-            Text('${_index + 1}/${_items!.length}'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ))),
+            Text('${_index + 1}/${_items!.length}',
+                style: TextStyle(color: scheme.onSurfaceVariant)),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: Space.lg),
         Text(item['prompt'] ?? '',
-            style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 16),
-        TextField(
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(height: 1.3)),
+        const SizedBox(height: Space.xl),
+        AnswerInput(
           controller: _answer,
-          enabled: result == null,
-          minLines: 2,
-          maxLines: 6,
-          decoration: const InputDecoration(
-            labelText: 'Your answer',
-            border: OutlineInputBorder(),
-          ),
+          enabled: result == null && !_submitting,
+          image: _image,
+          onImageChanged: (img) => setState(() => _image = img),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: Space.lg),
         if (result == null)
-          FilledButton(
-            onPressed: _submitting ? null : _submit,
-            child: _submitting
-                ? const SizedBox(
-                    height: 18,
-                    width: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('Check answer'),
+          Row(
+            children: [
+              OutlinedButton(
+                onPressed: _submitting ? null : _skip,
+                child: const Text('Skip'),
+              ),
+              const SizedBox(width: Space.md),
+              Expanded(
+                child: FilledButton(
+                  onPressed: _submitting ? null : _submit,
+                  child: _submitting
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child:
+                              CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Check answer'),
+                ),
+              ),
+            ],
           )
         else
           _feedback(result),
@@ -160,43 +246,47 @@ class _DrillScreenState extends State<DrillScreen> {
   }
 
   Widget _feedback(Map<String, dynamic> r) {
+    final palette = StatusPalette(Theme.of(context).brightness);
     final graded = r['graded'] != false; // older servers omit it -> treat as graded
     final correct = r['correct'] == true;
     final (color, icon, label) = !graded
-        ? (Colors.blueGrey, Icons.bookmark_added_outlined, 'Saved')
+        ? (palette.neutral, Icons.bookmark_added_outlined, 'Saved')
         : correct
-            ? (Colors.green, Icons.check_circle, 'Correct')
-            : (Colors.deepOrange, Icons.cancel, 'Not quite');
+            ? (palette.success, Icons.check_circle, 'Correct')
+            : (palette.warning, Icons.cancel, 'Not quite');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Card(
-          color: color.withValues(alpha: 0.10),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Icon(icon, color: color),
-                  const SizedBox(width: 8),
-                  Text(label,
-                      style: TextStyle(
-                          color: color, fontWeight: FontWeight.bold)),
-                ]),
-                const SizedBox(height: 8),
-                Text(r['feedback'] ?? ''),
-                if (r['answer'] != null) ...[
-                  const SizedBox(height: 8),
-                  Text('Reference answer',
-                      style: Theme.of(context).textTheme.labelSmall),
-                  Text('${r['answer']}'),
-                ],
+        Container(
+          padding: const EdgeInsets.all(Space.lg),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(Radii.card),
+            border: Border.all(color: color.withValues(alpha: 0.4)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Icon(icon, color: color, size: 20),
+                const SizedBox(width: Space.sm),
+                Text(label,
+                    style: TextStyle(
+                        color: color, fontWeight: FontWeight.w700)),
+              ]),
+              const SizedBox(height: Space.sm),
+              Text(r['feedback'] ?? ''),
+              if (r['answer'] != null) ...[
+                const SizedBox(height: Space.md),
+                Text('Reference answer',
+                    style: Theme.of(context).textTheme.labelSmall),
+                const SizedBox(height: 2),
+                Text('${r['answer']}'),
               ],
-            ),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: Space.lg),
         FilledButton.icon(
           onPressed: _next,
           icon: const Icon(Icons.arrow_forward),
@@ -206,35 +296,108 @@ class _DrillScreenState extends State<DrillScreen> {
     );
   }
 
-  Widget _modeBadge(String? mode) {
-    final label = switch (mode) {
-      'on_the_go' => 'On the go',
-      'short_drill' => 'Short drill',
-      'deep_dive' => 'Deep dive',
-      'discuss' => 'Discuss',
-      _ => mode ?? '',
-    };
-    return Chip(
-      label: Text(label, style: const TextStyle(fontSize: 11)),
-      visualDensity: VisualDensity.compact,
-      padding: EdgeInsets.zero,
+  Widget _summary() {
+    final answered = _items!.length - _skipped;
+    return _centered(
+      'Session complete 🎉',
+      subtitle: answered == 0
+          ? 'You skipped everything this round.'
+          : 'You got $_correct of $answered right'
+              '${_skipped > 0 ? ' · skipped $_skipped' : ''}.',
+      action: Wrap(spacing: Space.sm, children: [
+        OutlinedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Done')),
+        FilledButton(onPressed: _load, child: const Text('Another round')),
+      ]),
     );
   }
 
-  Widget _centered(String text, {Widget? action}) {
+  Widget _centered(String text, {String? subtitle, Widget? action}) {
+    final scheme = Theme.of(context).colorScheme;
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32),
+        padding: const EdgeInsets.all(Space.xxl),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(text,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium),
-            if (action != null) ...[const SizedBox(height: 16), action],
+                style: Theme.of(context).textTheme.titleLarge),
+            if (subtitle != null) ...[
+              const SizedBox(height: Space.sm),
+              Text(subtitle,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant)),
+            ],
+            if (action != null) ...[const SizedBox(height: Space.xl), action],
           ],
         ),
       ),
     );
   }
+}
+
+/// The intensity pill — tap to switch On the go / Deep dive mid-session.
+class _IntensitySwitcher extends StatelessWidget {
+  const _IntensitySwitcher({
+    required this.label,
+    required this.current,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String? current;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Change intensity',
+      onSelected: onChanged,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.control)),
+      itemBuilder: (_) => [
+        _item('on_the_go', '🎧  On the go'),
+        _item('deep_dive', '✍️  Deep dive'),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: 4),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(colors: [
+            brandSeed.withValues(alpha: 0.22),
+            _magenta.withValues(alpha: 0.14),
+          ]),
+          borderRadius: BorderRadius.circular(Radii.chip),
+          border: Border.all(color: brandSeed.withValues(alpha: 0.4)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: brandSeed,
+                )),
+            const Icon(Icons.expand_more, size: 14, color: brandSeed),
+          ],
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _item(String value, String text) => PopupMenuItem(
+        value: value,
+        child: Row(
+          children: [
+            Expanded(child: Text(text)),
+            if (current == value)
+              const Icon(Icons.check, size: 18, color: brandSeed),
+          ],
+        ),
+      );
 }
