@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -8,6 +9,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../api.dart';
 import '../theme.dart';
+import '../util/secure_context.dart';
 import '../widgets/answer_input.dart' show AnswerImage;
 
 const Color _magenta = Color(0xFFC13BFF);
@@ -150,6 +152,11 @@ class _QuestionChatState extends State<QuestionChat> {
       setState(() => _listening = false);
       return;
     }
+    if (kIsWeb && !isPageSecure()) {
+      _toast('Voice needs a secure (HTTPS) connection — this page is on HTTP, '
+          'so the browser blocks the mic. Open the app over https://.');
+      return;
+    }
     try {
       final ok = await _speech.initialize(
         onStatus: (s) {
@@ -157,13 +164,14 @@ class _QuestionChatState extends State<QuestionChat> {
             setState(() => _listening = false);
           }
         },
-        onError: (_) {
+        onError: (e) {
           if (mounted) setState(() => _listening = false);
+          _toast('Voice error: ${e.errorMsg}');
         },
       );
       if (!ok) {
-        _toast('Microphone isn’t available here. On the web, voice needs '
-            'Chrome over HTTPS and mic permission.');
+        _toast('Voice isn’t available in this browser. It works best in '
+            'Chrome/Edge over HTTPS, with microphone permission allowed.');
         return;
       }
       HapticFeedback.selectionClick();
@@ -181,11 +189,17 @@ class _QuestionChatState extends State<QuestionChat> {
       );
     } catch (e) {
       if (mounted) setState(() => _listening = false);
-      _toast('Couldn’t start voice: $e');
+      _toast('Couldn’t start voice (${e.runtimeType}). On the web, use Chrome '
+          'over HTTPS with mic permission.');
     }
   }
 
   Future<void> _pickImage(ImageSource source) async {
+    if (kIsWeb && source == ImageSource.camera && !isPageSecure()) {
+      _toast('The camera needs a secure (HTTPS) connection — this page is on '
+          'HTTP. Use the photo library instead, or open the app over https://.');
+      return;
+    }
     try {
       final file = await _picker.pickImage(
           source: source, maxWidth: 1600, imageQuality: 80);
