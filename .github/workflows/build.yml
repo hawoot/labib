@@ -65,16 +65,24 @@ jobs:
         # Dart code and pubspec untouched.
         working-directory: frontend
         run: flutter create --platforms=android --org com.labib .
-      - name: Ensure INTERNET permission in the release manifest
-        # Flutter only puts INTERNET in the debug/profile manifests, so a release
-        # APK can't do any networking (DNS lookups fail with errno 7). Add it to
-        # the main manifest so the release build can reach the server.
+      - name: Ensure permissions & queries in the release manifest
+        # The web-only scaffold's manifest lacks what the native features need:
+        #   - INTERNET  : release APK networking (DNS fails with errno 7 without it)
+        #   - RECORD_AUDIO : the mic for speech-to-text
+        #   - <queries> : Android 11+ package visibility so speech_to_text can see
+        #     the system RecognitionService (without it initialize() returns false
+        #     and the UI wrongly says "not available in this browser"); the
+        #     IMAGE_CAPTURE intent keeps the camera path visible too.
+        # Each insertion is a single sed line (kept simple/YAML-safe).
         working-directory: frontend
         run: |
           MAN=android/app/src/main/AndroidManifest.xml
-          if ! grep -q 'android.permission.INTERNET' "$MAN"; then
+          grep -q 'android.permission.INTERNET' "$MAN" || \
             sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$MAN"
-          fi
+          grep -q 'android.permission.RECORD_AUDIO' "$MAN" || \
+            sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO"/>\n    <application|' "$MAN"
+          grep -q 'android.speech.RecognitionService' "$MAN" || \
+            sed -i 's|<application|<queries><intent><action android:name="android.speech.RecognitionService" /></intent><intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent></queries>\n    <application|' "$MAN"
           echo "----- AndroidManifest.xml -----"; cat "$MAN"
       - name: Wire in Firebase Cloud Messaging
         # `flutter create` scaffolds a fresh Android project each run, so we

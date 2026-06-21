@@ -11,6 +11,7 @@ the question pass uses as grounding.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy.orm import Session
 
@@ -33,6 +34,13 @@ MAX_STRUCTURE_CHUNKS = 240
 MAX_PROVENANCE_CHARS = 4000
 STRUCTURE_MAX_TOKENS = 16000
 QUESTION_MAX_TOKENS = 4000
+
+# The structure windows and the per-skill question calls are independent LLM
+# calls, so we fan them out concurrently instead of one-after-another. This is
+# the difference between a crunch taking minutes vs. hours once a document
+# yields many skills (the question pass is one call per skill). The LLM result
+# is computed in worker threads; all DB writes stay on the calling thread.
+CRUNCH_CONCURRENCY = 8
 
 QUESTION_MODES_HINT = (
     "Generate a spread of modes per skill — about 2 'on_the_go', 1 'short_drill', "
@@ -60,6 +68,37 @@ def _set(db: Session, job: models.IngestionJob, *, phase=None, progress=None):
     if progress is not None:
         job.progress = progress
     db.commit()
+
+
+def _map_concurrent(fn, items, on_complete=None):
+    """Run `fn` over `items` concurrently (bounded by CRUNCH_CONCURRENCY) and
+    return results in input order.
+
+    An item that raises has its exception stored as its result (not re-raised)
+    so a single bad LLM call doesn't sink the whole batch — callers check
+    `isinstance(result, Exception)`. `on_complete(done, total)` (if given) runs
+    on the calling thread as each item finishes, for progress updates. The
+    worker threads do pure LLM work and never touch the DB session.
+    """
+    from concurrent.futures import as_completed
+
+    if not items:
+        return []
+    results: list = [None] * len(items)
+    workers = min(CRUNCH_CONCURRENCY, len(items))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(fn, item): i for i, item in enumerate(items)}
+        done = 0
+        for fut in as_completed(futures):
+            i = futures[fut]
+            try:
+                results[i] = fut.result()
+            except Exception as e:  # noqa: BLE001 - captured per item
+                results[i] = e
+            done += 1
+            if on_complete is not None:
+                on_complete(done, len(items))
+    return results
 
 
 def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -> None:
@@ -100,45 +139,58 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
     ]
     skills: list[models.Skill] = []
     unit_ordinal = 0
-    for w, window in enumerate(windows):
+
+    # Build the prompt text on THIS thread (reads chunk rows); the worker
+    # threads then get plain strings and never touch the DB session.
+    numbered_windows = [
+        "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(window))
+        for window in windows
+    ]
+
+    def _structure_window(numbered: str) -> dict | None:
         # Chunks are numbered locally to this window; source_chunks the model
-        # returns are resolved against `window` in _persist_units.
-        numbered = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(window))
-        try:
-            structure = complete_json(
-                [
-                    {
-                        "role": "system",
-                        "content": "You are a curriculum designer. Break source "
-                        "material into a hierarchy of units and atomic, masterable "
-                        "skills. Output STRICT JSON only.",
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"INTENT: {journey.intent or 'general mastery'}\n\n"
-                            f"MATERIAL (numbered chunks):\n{numbered}\n\n"
-                            'Produce JSON: {"units":[{"title":str,"skills":'
-                            '[{"name":str,"description":str,"source_chunks":[int]}],'
-                            '"units":[...optional nested...]}]}. '
-                            "Keep skills atomic and specific. source_chunks are the "
-                            "chunk numbers each skill draws from."
-                        ),
-                    },
-                ],
-                max_tokens=STRUCTURE_MAX_TOKENS,
-            )
-        except Exception as e:  # one window failing shouldn't sink the whole crunch
-            logger.warning(
-                "structure pass failed for window %d/%d: %s", w + 1, len(windows), e
-            )
-            _set(db, job, progress=30 + int(28 * (w + 1) / len(windows)))
+        # returns are resolved against `window` in _persist_units. Pure LLM work.
+        return complete_json(
+            [
+                {
+                    "role": "system",
+                    "content": "You are a curriculum designer. Break source "
+                    "material into a hierarchy of units and atomic, masterable "
+                    "skills. Output STRICT JSON only.",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"INTENT: {journey.intent or 'general mastery'}\n\n"
+                        f"MATERIAL (numbered chunks):\n{numbered}\n\n"
+                        'Produce JSON: {"units":[{"title":str,"skills":'
+                        '[{"name":str,"description":str,"source_chunks":[int]}],'
+                        '"units":[...optional nested...]}]}. '
+                        "Keep skills atomic and specific. source_chunks are the "
+                        "chunk numbers each skill draws from."
+                    ),
+                },
+            ],
+            max_tokens=STRUCTURE_MAX_TOKENS,
+        )
+
+    # Fan the window calls out concurrently; persist in window order so unit
+    # ordinals stay stable and source_chunks resolve against the right window.
+    structures = _map_concurrent(
+        _structure_window,
+        numbered_windows,
+        on_complete=lambda d, t: _set(db, job, progress=30 + int(28 * d / t)),
+    )
+    for w, (window, structure) in enumerate(zip(windows, structures)):
+        if isinstance(structure, Exception) or structure is None:
+            logger.warning("structure pass failed for window %d/%d: %s",
+                           w + 1, len(windows), structure)
             continue
         units = structure.get("units", []) or []
         skills += _persist_units(db, journey, version, units, window, None, unit_ordinal)
         unit_ordinal += len(units)
-        # Structuring spans progress 30 -> 58 across however many windows.
-        _set(db, job, progress=30 + int(28 * (w + 1) / len(windows)))
+    # Structuring spans progress 30 -> 58.
+    _set(db, job, progress=58)
 
     db.flush()
     if not skills:
@@ -151,54 +203,70 @@ def run_crunch(db: Session, journey: models.Journey, job: models.IngestionJob) -
     _set(db, job, phase="questions", progress=60)
     total = len(skills)
     questions_made = 0
-    for n, skill in enumerate(skills):
-        prov_text = _provenance_text(db, skill)
-        try:
-            result = complete_json(
-                [
-                    {
-                        "role": "system",
-                        "content": "You write practice questions grounded in the given "
-                        "source. Output STRICT JSON only.",
-                    },
-                    {
-                        "role": "user",
-                        "content": (
-                            f"INTENT: {journey.intent or 'general mastery'}\n"
-                            f"SKILL: {skill.name}\nDESCRIPTION: {skill.description}\n"
-                            f"SOURCE:\n{prov_text}\n\n"
-                            'Produce JSON {"questions":[{"mode":'
-                            '"on_the_go|short_drill|deep_dive","prompt":str,'
-                            '"answer":str,"explanation":str}]}. '
-                            f"{QUESTION_MODES_HINT} Keep answers concise."
-                        ),
-                    },
-                ],
-                max_tokens=QUESTION_MAX_TOKENS,
-            )
-        except Exception as e:  # skip this skill's questions, keep the rest
-            logger.warning("question pass failed for skill %s: %s", skill.id, e)
-            _set(db, job, progress=60 + int(35 * (n + 1) / total))
-            continue
-        for q in result.get("questions", []):
-            if not isinstance(q, dict) or not q.get("prompt"):
-                continue
-            mode = q.get("mode", "on_the_go")
-            if mode not in ("on_the_go", "short_drill", "deep_dive", "discuss"):
-                mode = "on_the_go"
-            db.add(
-                models.Question(
-                    skill_id=skill.id,
-                    journey_id=journey.id,
-                    mode=mode,
-                    prompt=q["prompt"],
-                    answer=q.get("answer"),
-                    explanation=q.get("explanation"),
-                    provenance=list(skill.provenance or []),
-                    curriculum_version=version,
+
+    # Read every skill's name/description/provenance on THIS thread into plain
+    # dicts, so the concurrent LLM calls don't lazy-load from the DB session.
+    payloads = [
+        {
+            "name": skill.name,
+            "description": skill.description,
+            "source": _provenance_text(db, skill),
+        }
+        for skill in skills
+    ]
+
+    def _questions_for(p: dict) -> dict:
+        return complete_json(
+            [
+                {
+                    "role": "system",
+                    "content": "You write practice questions grounded in the given "
+                    "source. Output STRICT JSON only.",
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"INTENT: {journey.intent or 'general mastery'}\n"
+                        f"SKILL: {p['name']}\nDESCRIPTION: {p['description']}\n"
+                        f"SOURCE:\n{p['source']}\n\n"
+                        'Produce JSON {"questions":[{"mode":'
+                        '"on_the_go|short_drill|deep_dive","prompt":str,'
+                        '"answer":str,"explanation":str}]}. '
+                        f"{QUESTION_MODES_HINT} Keep answers concise."
+                    ),
+                },
+            ],
+            max_tokens=QUESTION_MAX_TOKENS,
+        )
+
+    results = _map_concurrent(
+        _questions_for,
+        payloads,
+        on_complete=lambda d, t: _set(db, job, progress=60 + int(30 * d / t)),
+    )
+    for n, (skill, result) in enumerate(zip(skills, results)):
+        if isinstance(result, Exception) or result is None:
+            logger.warning("question pass failed for skill %s: %s", skill.id, result)
+        else:
+            for q in result.get("questions", []):
+                if not isinstance(q, dict) or not q.get("prompt"):
+                    continue
+                mode = q.get("mode", "on_the_go")
+                if mode not in ("on_the_go", "short_drill", "deep_dive", "discuss"):
+                    mode = "on_the_go"
+                db.add(
+                    models.Question(
+                        skill_id=skill.id,
+                        journey_id=journey.id,
+                        mode=mode,
+                        prompt=q["prompt"],
+                        answer=q.get("answer"),
+                        explanation=q.get("explanation"),
+                        provenance=list(skill.provenance or []),
+                        curriculum_version=version,
+                    )
                 )
-            )
-            questions_made += 1
+                questions_made += 1
         _set(db, job, progress=60 + int(35 * (n + 1) / total))
 
     if questions_made == 0:
