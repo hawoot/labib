@@ -6,10 +6,11 @@ a real queue (Redis/arq) replaces this later with no API changes.
 """
 from __future__ import annotations
 
+import datetime
 import logging
 import threading
 
-from . import models
+from . import models, push
 from .crunch import run_crunch
 from .db import SessionLocal
 
@@ -17,6 +18,11 @@ log = logging.getLogger("labib.worker")
 
 _stop = threading.Event()
 _thread: threading.Thread | None = None
+_reminder_thread: threading.Thread | None = None
+
+# How late a reminder may fire if a tick is delayed (server busy). The per-day
+# dedupe (last_sent_on) means this window can never cause a repeat.
+_REMINDER_GRACE_MIN = 5
 
 
 def reset_orphans() -> None:
@@ -79,13 +85,73 @@ def _loop() -> None:
             _stop.wait(2)
 
 
+# --------------------------------------------------------------------------- #
+#  Reminder scheduler: fire each user's recurring practice reminders at their
+#  local time, via push. One pass per ~30s; dedupe per local day.
+# --------------------------------------------------------------------------- #
+def _send_due_reminders() -> None:
+    if not push.is_configured():
+        return  # no Firebase creds -> nothing to send; skip quietly
+    db = SessionLocal()
+    try:
+        now_utc = datetime.datetime.utcnow()
+        schedules = (
+            db.query(models.NotificationSchedule).filter_by(enabled=True).all()
+        )
+        for s in schedules:
+            local = now_utc + datetime.timedelta(minutes=s.utc_offset_minutes)
+            local_date = local.date().isoformat()
+            if s.last_sent_on == local_date:
+                continue  # already fired today
+            days = s.days or []
+            if len(days) != 7 or not days[local.weekday()]:
+                continue  # not scheduled for today
+            local_minutes = local.hour * 60 + local.minute
+            if not (s.minutes <= local_minutes <= s.minutes + _REMINDER_GRACE_MIN):
+                continue  # not its time (within the grace window)
+
+            tokens = [
+                t.token
+                for t in db.query(models.DeviceToken)
+                .filter_by(user_id=s.user_id)
+                .all()
+            ]
+            if tokens:
+                try:
+                    push.send_to_tokens(
+                        tokens,
+                        title="labib",
+                        body="Time for a quick practice 👋",
+                        data={"kind": "reminder"},
+                    )
+                except Exception:  # noqa: BLE001 - never let one user break the loop
+                    log.exception("reminder send failed for user %s", s.user_id)
+            s.last_sent_on = local_date
+            db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        log.exception("reminder tick failed")
+    finally:
+        db.close()
+
+
+def _reminder_loop() -> None:
+    while not _stop.is_set():
+        _send_due_reminders()
+        _stop.wait(30)
+
+
 def start_worker() -> None:
-    global _thread
-    if _thread and _thread.is_alive():
-        return
+    global _thread, _reminder_thread
     _stop.clear()
-    _thread = threading.Thread(target=_loop, name="crunch-worker", daemon=True)
-    _thread.start()
+    if not (_thread and _thread.is_alive()):
+        _thread = threading.Thread(target=_loop, name="crunch-worker", daemon=True)
+        _thread.start()
+    if not (_reminder_thread and _reminder_thread.is_alive()):
+        _reminder_thread = threading.Thread(
+            target=_reminder_loop, name="reminder-scheduler", daemon=True
+        )
+        _reminder_thread.start()
 
 
 def stop_worker() -> None:

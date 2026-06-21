@@ -5,6 +5,7 @@ import '../api.dart';
 import '../prefs.dart';
 import '../streak.dart';
 import '../theme.dart';
+import 'notifications_screen.dart';
 
 const Color _magenta = Color(0xFFC13BFF);
 
@@ -88,24 +89,6 @@ class _ProfileTabState extends State<ProfileTab> {
     }
     if (left.inHours >= 1) return '${left.inHours}h left';
     return '${left.inMinutes}m left';
-  }
-
-  Future<void> _testPush() async {
-    HapticFeedback.selectionClick();
-    try {
-      final r = await Api.sendTestNotification();
-      if (!mounted) return;
-      final sent = (r['sent'] as int?) ?? 0;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(sent > 0
-              ? 'Sent! Check your notification shade.'
-              : 'Server reached, but nothing was delivered.')));
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
-      }
-    }
   }
 
   void _copyCode() {
@@ -207,25 +190,25 @@ class _ProfileTabState extends State<ProfileTab> {
 
           const Divider(height: Space.xxl + Space.lg),
 
-          // --- Notifications ----------------------------------------------
-          Text('Notifications',
-              style: Theme.of(context).textTheme.titleMedium),
+          // --- Reminders ---------------------------------------------------
+          Text('Reminders', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: Space.xs),
           Text(
-            'Reminders arrive as native push notifications on this device. '
-            'Send a test to confirm they come through.',
+            'Set the times you’d like a nudge to practise. They arrive as push '
+            'notifications on this device.',
             style: Theme.of(context)
                 .textTheme
                 .bodyMedium
                 ?.copyWith(color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: Space.md),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: _testPush,
-              icon: const Icon(Icons.notifications_active_outlined, size: 18),
-              label: const Text('Send a test notification'),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: const Text('Set up reminders'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const NotificationsScreen())),
             ),
           ),
 

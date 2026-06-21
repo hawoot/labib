@@ -105,6 +105,30 @@ jobs:
             sed -i '/dev.flutter.flutter-gradle-plugin/a\    id("com.google.gms.google-services")' "$APP_GRADLE"
           fi
 
+          # 4. Force compileSdk = 36 on EVERY module (app + plugins). file_picker's
+          # flutter_plugin_android_lifecycle requires consumers to compile against
+          # API 36, which the app-level setting alone can't give the plugin modules.
+          # Written with printf (not a heredoc) so every line stays inside this
+          # YAML block scalar. Reflection keeps it AGP-DSL-version agnostic.
+          ROOT_GRADLE=android/build.gradle.kts
+          if ! grep -q 'labibForceCompileSdk' "$ROOT_GRADLE"; then
+            printf '%s\n' \
+              '' \
+              '// forced compileSdk: file_picker needs consumers on Android API 36.' \
+              'fun labibForceCompileSdk(p: org.gradle.api.Project) {' \
+              '    val android = p.extensions.findByName("android") ?: return' \
+              '    val methods = android.javaClass.methods' \
+              '    val setter = methods.firstOrNull { it.name == "setCompileSdk" && it.parameterCount == 1 }' \
+              '        ?: methods.firstOrNull { it.name == "compileSdkVersion" && it.parameterCount == 1 && it.parameterTypes[0] == Integer.TYPE }' \
+              '        ?: methods.firstOrNull { it.name == "setCompileSdkVersion" && it.parameterCount == 1 && it.parameterTypes[0] == Integer.TYPE }' \
+              '    setter?.invoke(android, 36)' \
+              '}' \
+              'subprojects {' \
+              '    if (state.executed) labibForceCompileSdk(project) else afterEvaluate { labibForceCompileSdk(project) }' \
+              '}' \
+              >> "$ROOT_GRADLE"
+          fi
+
           echo "----- settings.gradle.kts (plugins) -----"; sed -n '/plugins {/,/}/p' "$SETTINGS"
           echo "----- app/build.gradle.kts (plugins + applicationId) -----"
           sed -n '/plugins {/,/}/p' "$APP_GRADLE"; grep applicationId "$APP_GRADLE"
