@@ -169,8 +169,13 @@ class _JourneyScreenState extends State<JourneyScreen> {
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _load,
+              // Pad the bottom by the system nav-bar inset. Since compileSdk 36
+              // the app is edge-to-edge (Android 15), so without this the last
+              // content (e.g. the crunch %) renders behind the translucent nav
+              // bar and is unreadable.
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.fromLTRB(
+                    16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
                 children: [
                   _section('Material (${_documents.length})'),
                   ..._documents.map((d) => Card(
@@ -240,11 +245,67 @@ class _JourneyScreenState extends State<JourneyScreen> {
         ],
       );
     }
-    return FilledButton.icon(
-      onPressed: _documents.isEmpty ? null : _crunch,
-      icon: const Icon(Icons.auto_awesome),
-      label: Text(_curriculum == null ? 'Crunch into questions' : 'Re-crunch'),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ..._crunchOutcome(),
+        FilledButton.icon(
+          onPressed: _documents.isEmpty ? null : _crunch,
+          icon: const Icon(Icons.auto_awesome),
+          label:
+              Text(_curriculum == null ? 'Crunch into questions' : 'Re-crunch'),
+        ),
+      ],
     );
+  }
+
+  /// Outcome badge for a finished crunch: nothing for a clean single-pass,
+  /// an amber "chunked into N" when it fell back to chunking, and a red
+  /// "N not included" (plus the notice) when material was dropped at the cap.
+  List<Widget> _crunchOutcome() {
+    final job = _job;
+    if (job == null || (job['mode'] as String? ?? '') != 'chunked') {
+      return const [];
+    }
+    final dropped = (job['dropped_count'] ?? 0) as int;
+    final sections = (job['section_count'] ?? 0) as int;
+    final notice = job['notice'] as String?;
+    final scheme = Theme.of(context).colorScheme;
+    final red = dropped > 0;
+    final color = red ? scheme.error : const Color(0xFFE0A000);
+    final label = red
+        ? '$dropped section${dropped == 1 ? '' : 's'} not included'
+        : 'Chunked into $sections sections';
+    return [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(red ? Icons.error_outline : Icons.call_split,
+                size: 16, color: color),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(label,
+                  style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+      if (notice != null && notice.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(notice,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurfaceVariant)),
+        ),
+      const SizedBox(height: 12),
+    ];
   }
 
   Widget _curriculumSection() {

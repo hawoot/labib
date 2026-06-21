@@ -212,9 +212,16 @@ class IngestionJob(Base):
         String(32), ForeignKey("journeys.id"), index=True
     )
     status: Mapped[str] = mapped_column(String(16), default="queued", index=True)  # queued|running|done|failed
-    phase: Mapped[str] = mapped_column(String(20), default="queued")
+    phase: Mapped[str] = mapped_column(String(40), default="queued")
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0..100
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # How the structure pass ran: "single_pass" (whole material in one call,
+    # max coherence) or "chunked" (split into windows + consolidated). Drives
+    # the outcome badge in the app.
+    mode: Mapped[str] = mapped_column(String(16), default="")
+    section_count: Mapped[int] = mapped_column(Integer, default=0)  # windows, if chunked
+    dropped_count: Mapped[int] = mapped_column(Integer, default=0)  # chunks past the safety cap
+    notice: Mapped[str | None] = mapped_column(Text, nullable=True)  # user-facing note
     tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     curriculum_version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime.datetime] = _now_col()

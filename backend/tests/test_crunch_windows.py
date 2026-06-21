@@ -32,8 +32,15 @@ DOC_TEXT = "\n\n".join(PARAS)
 def _fake_complete_json(messages, **_kw):
     system = " ".join(m["content"] for m in messages if m["role"] == "system")
     user = " ".join(m["content"] for m in messages if m["role"] == "user")
+    if "consolidating" in system:
+        return _passthrough_consolidation(user)
     if "curriculum designer" in system:
-        # Structure call: name a skill after this window's first chunk marker.
+        # The single-pass attempt sends ALL chunks (so its prompt contains a
+        # [24] index); simulate the provider rejecting it as too long, which
+        # forces the chunked path whose per-window coverage this test checks.
+        if "[24]" in user:
+            raise RuntimeError("maximum context length exceeded")
+        # Window structure call: name a skill after this window's first marker.
         marker = re.search(r"\[0\] (CHUNK\d+)", user).group(1)
         return {
             "units": [
@@ -51,6 +58,20 @@ def _fake_complete_json(messages, **_kw):
     return {"questions": [
         {"mode": "on_the_go", "prompt": "p", "answer": "a", "explanation": "e"}
     ]}
+
+
+def _passthrough_consolidation(user):
+    """Stand-in for the consolidation pass: echo each draft skill back as its own
+    final skill (source_skills=[i]) so per-window coverage stays observable."""
+    skills = []
+    for line in user.splitlines():
+        m = re.match(r"\[(\d+)\] (.+?): ", line)
+        if m:
+            skills.append(
+                {"name": m.group(2), "description": "d",
+                 "source_skills": [int(m.group(1))]}
+            )
+    return {"units": [{"title": "All", "skills": skills}]}
 
 
 def main() -> int:
