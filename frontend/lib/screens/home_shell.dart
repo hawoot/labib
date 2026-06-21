@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../push.dart';
 import 'journeys_screen.dart';
 import 'profile_tab.dart';
 import 'progress_tab.dart';
@@ -25,6 +26,14 @@ class _HomeShellState extends State<HomeShell> {
     ProgressTab(),
     ProfileTab(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // The user is signed in by the time the shell mounts, so this is the right
+    // place to register the device for push (no-op on web / if it fails).
+    Push.start();
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -90,6 +90,24 @@ class _ProfileTabState extends State<ProfileTab> {
     return '${left.inMinutes}m left';
   }
 
+  Future<void> _testPush() async {
+    HapticFeedback.selectionClick();
+    try {
+      final r = await Api.sendTestNotification();
+      if (!mounted) return;
+      final sent = (r['sent'] as int?) ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(sent > 0
+              ? 'Sent! Check your notification shade.'
+              : 'Server reached, but nothing was delivered.')));
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
   void _copyCode() {
     if (Api.code == null) return;
     Clipboard.setData(ClipboardData(text: Api.code!));
@@ -185,6 +203,30 @@ class _ProfileTabState extends State<ProfileTab> {
               await Streak.setWindow(v);
               setState(() => _window = v);
             },
+          ),
+
+          const Divider(height: Space.xxl + Space.lg),
+
+          // --- Notifications ----------------------------------------------
+          Text('Notifications',
+              style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: Space.xs),
+          Text(
+            'Reminders arrive as native push notifications on this device. '
+            'Send a test to confirm they come through.',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: Space.md),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _testPush,
+              icon: const Icon(Icons.notifications_active_outlined, size: 18),
+              label: const Text('Send a test notification'),
+            ),
           ),
 
           const Divider(height: Space.xxl + Space.lg),

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "916266728864",
+    "project_id": "labib-190ad",
+    "storage_bucket": "labib-190ad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:916266728864:android:cb4911ee3f19b5ddaab8c5",
+        "android_client_info": {
+          "package_name": "com.labib.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAOHjgP4xfr5k0EFijMbe4COn5RJNiTH10"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

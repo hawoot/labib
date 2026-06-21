@@ -76,6 +76,38 @@ jobs:
             sed -i 's|<application|<uses-permission android:name="android.permission.INTERNET"/>\n    <application|' "$MAN"
           fi
           echo "----- AndroidManifest.xml -----"; cat "$MAN"
+      - name: Wire in Firebase Cloud Messaging
+        # `flutter create` scaffolds a fresh Android project each run, so we
+        # (re)apply the FCM bits here against the version-controlled config:
+        #   1. pin the applicationId to the package registered in Firebase
+        #      (must match google-services.json exactly or FCM rejects tokens),
+        #   2. drop the client config into android/app/, and
+        #   3. apply the google-services Gradle plugin so the Firebase SDK is
+        #      configured natively at build time.
+        working-directory: frontend
+        run: |
+          set -e
+          APP_GRADLE=android/app/build.gradle.kts
+          SETTINGS=android/settings.gradle.kts
+
+          # 1. Pin the package name.
+          sed -i 's/applicationId = ".*"/applicationId = "com.labib.app"/' "$APP_GRADLE"
+
+          # 2. Client config (safe to commit; it ships inside the app).
+          cp firebase/google-services.json android/app/google-services.json
+
+          # 3a. Declare the plugin (version, not applied) in settings.gradle.kts.
+          if ! grep -q 'com.google.gms.google-services' "$SETTINGS"; then
+            sed -i '/dev.flutter.flutter-plugin-loader/a\    id("com.google.gms.google-services") version "4.4.2" apply false' "$SETTINGS"
+          fi
+          # 3b. Apply it in the app module.
+          if ! grep -q 'com.google.gms.google-services' "$APP_GRADLE"; then
+            sed -i '/dev.flutter.flutter-gradle-plugin/a\    id("com.google.gms.google-services")' "$APP_GRADLE"
+          fi
+
+          echo "----- settings.gradle.kts (plugins) -----"; sed -n '/plugins {/,/}/p' "$SETTINGS"
+          echo "----- app/build.gradle.kts (plugins + applicationId) -----"
+          sed -n '/plugins {/,/}/p' "$APP_GRADLE"; grep applicationId "$APP_GRADLE"
       - name: Build APK
         working-directory: frontend
         # Server URL is the version-controlled kServerUrl in lib/config.dart.

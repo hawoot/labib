@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     # Local disk in dev; swap for S3/R2 later behind the same interface.
     storage_dir: str = "./data/uploads"
 
+    # --- Push notifications (Firebase Cloud Messaging) ---
+    # Admin credentials for SENDING pushes (a Firebase service-account key).
+    # This is a SECRET — never commit it. Provide one of:
+    #   FIREBASE_CREDENTIALS_JSON  – the whole service-account JSON as a string
+    #   FIREBASE_CREDENTIALS_FILE  – path to the .json file on disk
+    # If both are empty, push is disabled (endpoints report "not configured").
+    firebase_credentials_json: str = ""
+    firebase_credentials_file: str = ""
+
     # --- LLM ("the AI brain") ---
     # provider: "openai_compatible" (OpenRouter/DeepSeek/OpenAI/Ollama/...) or "anthropic"
     llm_provider: str = "openai_compatible"
