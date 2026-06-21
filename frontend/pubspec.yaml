@@ -49,12 +49,6 @@ dependencies:
   firebase_core: ^3.6.0
   firebase_messaging: ^15.1.3
 
-# file_picker pulls a newer flutter_plugin_android_lifecycle whose AAR demands
-# consumers compile against Android API 36; the rest of the toolchain (and the
-# previously-green APK build) is on 34. Pin it back to the 34-compatible line.
-dependency_overrides:
-  flutter_plugin_android_lifecycle: 2.0.17
-
 dev_dependencies:
   flutter_test:
     sdk: flutter

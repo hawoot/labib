@@ -105,6 +105,29 @@ jobs:
             sed -i '/dev.flutter.flutter-gradle-plugin/a\    id("com.google.gms.google-services")' "$APP_GRADLE"
           fi
 
+          # 4. Force compileSdk = 36 on EVERY module (app + plugins). file_picker's
+          # flutter_plugin_android_lifecycle requires consumers to compile against
+          # API 36, which the app-level setting alone can't give the plugin modules.
+          ROOT_GRADLE=android/build.gradle.kts
+          if ! grep -q 'forced compileSdk' "$ROOT_GRADLE"; then
+            cat >> "$ROOT_GRADLE" <<'EOF'
+
+// forced compileSdk: file_picker's flutter_plugin_android_lifecycle requires
+// consumers to compile against Android API 36. Apply to every module, via
+// reflection so it works regardless of the AGP DSL version in use.
+subprojects {
+    afterEvaluate {
+        val android = extensions.findByName("android") ?: return@afterEvaluate
+        val methods = android.javaClass.methods
+        val setter = methods.firstOrNull { it.name == "setCompileSdk" && it.parameterCount == 1 }
+            ?: methods.firstOrNull { it.name == "compileSdkVersion" && it.parameterCount == 1 && it.parameterTypes[0] == Integer.TYPE }
+            ?: methods.firstOrNull { it.name == "setCompileSdkVersion" && it.parameterCount == 1 && it.parameterTypes[0] == Integer.TYPE }
+        setter?.invoke(android, 36)
+    }
+}
+EOF
+          fi
+
           echo "----- settings.gradle.kts (plugins) -----"; sed -n '/plugins {/,/}/p' "$SETTINGS"
           echo "----- app/build.gradle.kts (plugins + applicationId) -----"
           sed -n '/plugins {/,/}/p' "$APP_GRADLE"; grep applicationId "$APP_GRADLE"
