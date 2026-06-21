@@ -93,10 +93,6 @@ jobs:
           # 1. Pin the package name.
           sed -i 's/applicationId = ".*"/applicationId = "com.labib.app"/' "$APP_GRADLE"
 
-          # 1b. Bump compileSdk: file_picker (via flutter_plugin_android_lifecycle)
-          # now requires Android API 36, but the Flutter scaffold targets 34.
-          sed -i -E 's/compileSdk = .*/compileSdk = 36/' "$APP_GRADLE"
-
           # 2. Client config (safe to commit; it ships inside the app).
           cp firebase/google-services.json android/app/google-services.json
 
