@@ -59,6 +59,10 @@ class IngestionJobOut(BaseModel):
     phase: str
     progress: int
     error: str | None
+    mode: str
+    section_count: int
+    dropped_count: int
+    notice: str | None
     curriculum_version: int
     created_at: datetime.datetime
     updated_at: datetime.datetime

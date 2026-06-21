@@ -138,7 +138,8 @@ def _extract_json(text: str) -> str:
 
 
 def complete_json(
-    messages: list[dict], settings: Settings | None = None, max_tokens: int = 8000
+    messages: list[dict], settings: Settings | None = None, max_tokens: int = 8000,
+    timeout: float | None = None,
 ):
     """Call the LLM and parse its reply as JSON, robust to reasoning models.
 
@@ -151,9 +152,13 @@ def complete_json(
     llm = get_llm(settings)
     state = {"force_json": True}
 
+    base_kw = {"max_tokens": max_tokens}
+    if timeout is not None:
+        base_kw["timeout"] = timeout  # OpenAI/Anthropic clients accept per-call timeout
+
     def _call(msgs: list[dict]) -> str:
         try:
-            kw = {"max_tokens": max_tokens}
+            kw = dict(base_kw)
             if state["force_json"]:
                 kw["response_format"] = {"type": "json_object"}
             return llm.complete(msgs, **kw)
@@ -161,7 +166,7 @@ def complete_json(
             # Provider likely rejects response_format -> drop it and retry once.
             if state["force_json"]:
                 state["force_json"] = False
-                return llm.complete(msgs, max_tokens=max_tokens)
+                return llm.complete(msgs, **base_kw)
             raise
 
     raw = _call(messages)

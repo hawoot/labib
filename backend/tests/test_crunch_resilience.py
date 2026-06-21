@@ -38,7 +38,20 @@ def main() -> int:
     def fake_one_window_fails(messages, **_):
         system = " ".join(m["content"] for m in messages if m["role"] == "system")
         user = " ".join(m["content"] for m in messages if m["role"] == "user")
+        if "consolidating" in system:
+            # Echo each surviving draft skill back unchanged.
+            skills = []
+            for line in user.splitlines():
+                m = re.match(r"\[(\d+)\] (.+?): ", line)
+                if m:
+                    skills.append({"name": m.group(2), "description": "d",
+                                   "source_skills": [int(m.group(1))]})
+            return {"units": [{"title": "All", "skills": skills}]}
         if "curriculum designer" in system:
+            # Force the chunked path (the single-pass attempt over all chunks
+            # contains a [24] index) so the per-window resilience is exercised.
+            if "[24]" in user:
+                raise RuntimeError("maximum context length exceeded")
             marker = re.search(r"\[0\] (CHUNK\d+)", user).group(1)
             if marker == "CHUNK24":
                 raise RuntimeError("structuring blip")
