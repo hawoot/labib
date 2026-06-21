@@ -92,23 +92,8 @@
         <div class="sw on" onclick="this.classList.toggle('on')"><i></i></div>
       </div>
 
-      <div class="seg">
-        <button id="segTL" class="on" onclick="setView('tl')">Timeline</button>
-        <button id="segTB" onclick="setView('tb')">Table</button>
-      </div>
-
-      <div id="viewTL">
-        <div class="tlwrap">
-          <div class="tllabel">Your day</div>
-          <div class="track" id="track"></div>
-        </div>
-        <div class="addhint">Tap the bar to add a reminder</div>
-      </div>
-
-      <div id="viewTB" style="display:none">
-        <div id="rows"></div>
-        <button class="add" onclick="addReminder(540)">+  Add a time</button>
-      </div>
+      <div id="rows"></div>
+      <button class="add" onclick="addReminder(540)">+  Add a time</button>
 
       <div class="future">
         <h3>✨ Coming later — smart notifications</h3>
@@ -130,49 +115,11 @@
     return hh+':'+String(mi).padStart(2,'0')+ap;}
   function snap(m){return Math.max(0,Math.min(1439, Math.round(m/15)*15));}
 
-  function setView(v){
-    document.getElementById('viewTL').style.display = v==='tl'?'block':'none';
-    document.getElementById('viewTB').style.display = v==='tb'?'block':'none';
-    document.getElementById('segTL').classList.toggle('on', v==='tl');
-    document.getElementById('segTB').classList.toggle('on', v==='tb');
-    render();
-  }
   function addReminder(min){ reminders.push({id:nextId++, min, days:[1,1,1,1,1,1,1], on:true});
     reminders.sort((a,b)=>a.min-b.min); render(); }
   function delReminder(id){ reminders = reminders.filter(r=>r.id!==id); render(); }
 
-  function render(){ renderTrack(); renderRows(); }
-
-  function renderTrack(){
-    const track = document.getElementById('track');
-    let html = '<div class="nightL"></div><div class="nightR"></div><div class="rail"></div>';
-    [0,6,12,18,24].forEach(h=>{const l=h/24*100;
-      html+=`<div class="tickmark" style="left:${l}%"></div><div class="tick" style="left:${l}%">${h===24?'24':h}</div>`;});
-    track.innerHTML = html;
-    reminders.forEach(r=>{
-      const el=document.createElement('div'); el.className='mk'; el.style.left=(r.min/1440*100)+'%';
-      el.innerHTML=`<div class="pill">${fmt(r.min)}<div class="x">×</div></div><div class="stem"></div><div class="dot"></div>`;
-      el.querySelector('.x').onclick=(e)=>{e.stopPropagation();delReminder(r.id);};
-      drag(el, r); track.appendChild(el);
-    });
-  }
-
-  function drag(el, r){
-    let dragging=false;
-    el.addEventListener('pointerdown',e=>{dragging=true;el.classList.add('drag');el.setPointerCapture(e.pointerId);e.stopPropagation();});
-    el.addEventListener('pointermove',e=>{ if(!dragging)return;
-      const t=document.getElementById('track').getBoundingClientRect();
-      let pct=(e.clientX-t.left)/t.width; r.min=snap(pct*1440);
-      el.style.left=(r.min/1440*100)+'%'; el.querySelector('.pill').childNodes[0].nodeValue=fmt(r.min);
-    });
-    el.addEventListener('pointerup',()=>{dragging=false;el.classList.remove('drag');reminders.sort((a,b)=>a.min-b.min);renderRows();});
-  }
-
-  document.getElementById('track').addEventListener('pointerdown',e=>{
-    if(e.target.closest('.mk'))return;
-    const t=e.currentTarget.getBoundingClientRect();
-    addReminder(snap((e.clientX-t.left)/t.width*1440));
-  });
+  function render(){ renderRows(); }
 
   function renderRows(){
     const box=document.getElementById('rows'); box.innerHTML='';
