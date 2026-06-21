@@ -61,15 +61,20 @@ class _QuestionChatState extends State<QuestionChat> {
 
   AnswerImage? _pendingImage;
   bool _sending = false;
-  bool _solved = false;
+  // null until the question reaches a verdict, then 'correct' or 'revealed'.
+  // The verdict is final; the chat stays open for follow-ups either way.
+  String? _verdict;
   bool _listening = false;
   String _basePrefix = '';
 
+  // Sentinel for the "show the answer" quick reply, which routes to the
+  // deterministic reveal flow rather than the graded chat.
+  static const _revealMsg = '__reveal__';
   static const _quickReplies = <(String, String)>[
     ('Help me approach this', 'Can you help me approach this — how should I start?'),
     ('I’m missing the basics',
         'I think I’m missing the basics. Can we step back to what I need first?'),
-    ('I’m stuck — show the answer', 'I’m stuck. Can you just show me the answer?'),
+    ('I’m stuck — show the answer', _revealMsg),
   ];
 
   @override
@@ -123,14 +128,18 @@ class _QuestionChatState extends State<QuestionChat> {
     });
     _toBottom();
     try {
-      final res =
-          await Api.chat(widget.journeyId, widget.question['question_id'] as String, _history());
+      // Once there's a verdict this is a follow-up — closed=true so the backend
+      // replies without re-grading or re-recording.
+      final closed = _verdict != null;
+      final res = await Api.chat(widget.journeyId,
+          widget.question['question_id'] as String, _history(),
+          closed: closed);
       if (!mounted) return;
       setState(() {
         _messages.add(_Msg.tutor(res['reply'] as String? ?? ''));
         _sending = false;
-        if (res['solved'] == true && !_solved) {
-          _solved = true;
+        if (!closed && res['solved'] == true && _verdict == null) {
+          _verdict = 'correct';
           HapticFeedback.mediumImpact();
           widget.onSolved((res['score'] as num?)?.toDouble() ?? 0);
         }
@@ -143,6 +152,43 @@ class _QuestionChatState extends State<QuestionChat> {
         _sending = false;
       });
       _toBottom();
+    }
+  }
+
+  /// Explicit give-up: deterministically records the question as not-done (score
+  /// 0 → the skill resurfaces soon), shows the real answer, and marks the verdict
+  /// 'revealed'. The chat stays open for follow-ups.
+  Future<void> _revealAnswer() async {
+    if (_verdict != null || _sending) return;
+    setState(() => _sending = true);
+    _toBottom();
+    try {
+      final res = await Api.reveal(
+          widget.journeyId, widget.question['question_id'] as String);
+      if (!mounted) return;
+      final answer = (res['answer'] as String?)?.trim();
+      final explanation = (res['explanation'] as String?)?.trim();
+      final parts = [
+        if (answer != null && answer.isNotEmpty) 'Answer: $answer',
+        if (explanation != null && explanation.isNotEmpty) explanation,
+      ];
+      setState(() {
+        _messages.add(_Msg.tutor(parts.isEmpty
+            ? 'Here’s the answer.'
+            : parts.join('\n\n')));
+        _sending = false;
+        _verdict = 'revealed';
+      });
+      // Counts as engaged-with (toward the daily goal) but not correct; the
+      // engine already keeps the skill due so it comes back.
+      widget.onSolved(0);
+      _toBottom();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _messages.add(_Msg.tutor('Couldn’t fetch the answer — try again.'));
+        _sending = false;
+      });
     }
   }
 
@@ -263,26 +309,27 @@ class _QuestionChatState extends State<QuestionChat> {
             },
           ),
         ),
-        if (_solved)
-          _SolvedBar(onNext: widget.onNext)
-        else ...[
+        // The verdict closes the evaluation but NOT the conversation: a status
+        // bar with "Next" appears, and the input stays so you can ask follow-ups.
+        if (_verdict != null) _VerdictBar(verdict: _verdict!, onNext: widget.onNext),
+        if (_verdict == null)
           _QuickReplies(
             disabled: _sending,
-            onTap: (msg) => _send(msg),
+            onTap: (msg) => msg == _revealMsg ? _revealAnswer() : _send(msg),
             replies: _quickReplies,
           ),
-          _InputBar(
-            controller: _input,
-            sending: _sending,
-            listening: _listening,
-            pendingImage: _pendingImage,
-            onMic: _toggleMic,
-            onPhoto: _chooseImageSource,
-            onRemoveImage: () => setState(() => _pendingImage = null),
-            onSend: () => _send(_input.text),
-            onSkip: widget.onSkip,
-          ),
-        ],
+        _InputBar(
+          controller: _input,
+          sending: _sending,
+          listening: _listening,
+          pendingImage: _pendingImage,
+          hint: _verdict != null ? 'Ask a follow-up…' : null,
+          onMic: _toggleMic,
+          onPhoto: _chooseImageSource,
+          onRemoveImage: () => setState(() => _pendingImage = null),
+          onSend: () => _send(_input.text),
+          onSkip: _verdict != null ? null : widget.onSkip,
+        ),
       ],
     );
   }
@@ -487,6 +534,7 @@ class _InputBar extends StatelessWidget {
     required this.onRemoveImage,
     required this.onSend,
     required this.onSkip,
+    this.hint,
   });
 
   final TextEditingController controller;
@@ -497,7 +545,9 @@ class _InputBar extends StatelessWidget {
   final VoidCallback onPhoto;
   final VoidCallback onRemoveImage;
   final VoidCallback onSend;
-  final VoidCallback onSkip;
+  // Null once there's a verdict — the Skip control is hidden (use Next instead).
+  final VoidCallback? onSkip;
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
@@ -541,12 +591,13 @@ class _InputBar extends StatelessWidget {
               ),
             Row(
               children: [
-                IconButton(
-                  tooltip: 'Skip question',
-                  onPressed: sending ? null : onSkip,
-                  icon: Icon(Icons.skip_next_outlined,
-                      color: scheme.onSurfaceVariant),
-                ),
+                if (onSkip != null)
+                  IconButton(
+                    tooltip: 'Skip question',
+                    onPressed: sending ? null : onSkip,
+                    icon: Icon(Icons.skip_next_outlined,
+                        color: scheme.onSurfaceVariant),
+                  ),
                 Expanded(
                   child: Container(
                     decoration: BoxDecoration(
@@ -580,7 +631,9 @@ class _InputBar extends StatelessWidget {
                             decoration: InputDecoration(
                               isDense: true,
                               border: InputBorder.none,
-                              hintText: listening ? 'Listening…' : 'Message labib',
+                              hintText: listening
+                                  ? 'Listening…'
+                                  : (hint ?? 'Message labib'),
                             ),
                           ),
                         ),
@@ -633,23 +686,29 @@ class _SendButton extends StatelessWidget {
   }
 }
 
-class _SolvedBar extends StatelessWidget {
-  const _SolvedBar({required this.onNext});
+class _VerdictBar extends StatelessWidget {
+  const _VerdictBar({required this.verdict, required this.onNext});
+  final String verdict; // 'correct' | 'revealed'
   final VoidCallback onNext;
 
   @override
   Widget build(BuildContext context) {
+    final correct = verdict == 'correct';
+    final icon = correct ? Icons.check_circle : Icons.menu_book_outlined;
+    final color = correct ? const Color(0xFF22C55E) : const Color(0xFFE0A000);
+    final label = correct ? 'Nice — got it.' : 'Answer shown — you’ll see this again.';
     return SafeArea(
       top: false,
+      bottom: false,
       child: Padding(
-        padding: const EdgeInsets.all(Space.lg),
+        padding: const EdgeInsets.fromLTRB(Space.lg, Space.sm, Space.lg, 0),
         child: Row(
           children: [
-            const Icon(Icons.check_circle, color: Color(0xFF22C55E)),
+            Icon(icon, color: color),
             const SizedBox(width: Space.sm),
-            const Expanded(
-              child: Text('Nice — got it.',
-                  style: TextStyle(fontWeight: FontWeight.w700)),
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
             ),
             DecoratedBox(
               decoration: BoxDecoration(

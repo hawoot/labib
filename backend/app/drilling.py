@@ -361,12 +361,19 @@ def chat_turn(
     journey_id: str,
     question_id: str,
     history: list[dict],
+    graded: bool = True,
 ) -> dict:
     """One turn of the per-question tutor chat. `history` is the conversation so
-    far (LLM-format messages, content may include image parts). We prepend the
-    question context as a system prompt and ask the model to reply AND judge
-    whether the student has now answered correctly. On 'solved' we record the
-    attempt and move the spaced-repetition schedule, once.
+    far (LLM-format messages, content may include image parts).
+
+    While `graded` (the question hasn't been closed yet) the tutor also judges
+    whether the student has now *demonstrated the correct answer themselves*; on
+    that we record the attempt and move the schedule, once. It never reveals the
+    full solution here — giving up is a separate, explicit action (reveal_answer)
+    so "show me the answer" can't be mis-scored as correct.
+
+    Once `graded` is False the verdict is already in: this is follow-up
+    discussion, so we reply only and never re-grade or re-record.
 
     Returns {reply, solved, score}. Survives a flaky model (returns a soft reply
     rather than erroring, so the chat never dead-ends)."""
@@ -375,24 +382,38 @@ def chat_turn(
         raise ValueError("Question not found in this journey.")
     skill = db.get(models.Skill, question.skill_id)
 
-    system = (
-        "You are labib, a warm, concise tutor helping a student with ONE question. "
-        "Converse naturally — give hints, ask Socratic questions, explain when "
-        "asked, and react to photos of their work. Keep replies short (1-4 "
-        "sentences). Never dump the full solution unless they explicitly give up.\n\n"
-        f"SKILL: {skill.name if skill else ''}\n"
-        f"QUESTION: {question.prompt}\n"
-        f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n\n"
-        'Always reply as STRICT JSON: {"reply": string, "solved": boolean, '
-        '"score": number 0..1}. Set solved=true with score≈1 once the student '
-        "has demonstrated the correct answer themselves. If they give up and you "
-        "reveal the full answer, set solved=true and score=0. Otherwise solved=false."
-    )
+    if graded:
+        system = (
+            "You are labib, a warm, concise tutor helping a student with ONE "
+            "question. Converse naturally — give hints, ask Socratic questions, "
+            "explain concepts, and react to photos of their work. Keep replies "
+            "short (1-4 sentences). NEVER reveal the full solution; if they're "
+            "stuck, give a nudge or suggest they tap 'show the answer'.\n\n"
+            f"SKILL: {skill.name if skill else ''}\n"
+            f"QUESTION: {question.prompt}\n"
+            f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n\n"
+            'Reply as STRICT JSON: {"reply": string, "solved": boolean, '
+            '"score": number 0..1}. Set solved=true (score≈1) ONLY once the '
+            "student has stated/derived the correct answer THEMSELVES. Asking for "
+            "help, saying they're stuck, or requesting the answer is NOT solved. "
+            "Otherwise solved=false."
+        )
+    else:
+        system = (
+            "You are labib, a warm, concise tutor. This question is already "
+            "finished and recorded — this is follow-up discussion. Answer the "
+            "student's follow-up questions clearly to deepen understanding; you "
+            "may explain the full solution now. Keep replies short.\n\n"
+            f"SKILL: {skill.name if skill else ''}\n"
+            f"QUESTION: {question.prompt}\n"
+            f"REFERENCE ANSWER: {question.answer or '(none provided)'}\n\n"
+            'Reply as STRICT JSON: {"reply": string}.'
+        )
     messages = [{"role": "system", "content": system}, *history]
     try:
         data = complete_json(messages, max_tokens=1200)
         reply = str(data.get("reply", "")).strip() or "Tell me what you’re thinking."
-        solved = bool(data.get("solved", False))
+        solved = bool(data.get("solved", False)) if graded else False
         score = max(0.0, min(1.0, float(data.get("score", 0) or 0)))
     except Exception as e:  # noqa: BLE001 - chat must survive a flaky model
         logger.warning("chat unavailable for %s: %s", question_id, e)

@@ -135,6 +135,9 @@ class ChatMessage(BaseModel):
 
 class ChatIn(BaseModel):
     messages: list[ChatMessage]
+    # True once the question already has a verdict: this turn is a follow-up
+    # discussion, so the tutor must NOT re-grade or re-record it.
+    closed: bool = False
 
 
 class ChatOut(BaseModel):
