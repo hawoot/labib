@@ -286,4 +286,19 @@ class Api {
           {String platform = 'android'}) async =>
       _decode(await _post('/notifications/register-device',
           {'token': token, 'platform': platform}));
+
+  /// The user's reminder schedule: {utc_offset_minutes, items:[{minutes,days,enabled}]}.
+  static Future<Map<String, dynamic>> getSchedules() async =>
+      _asMap(await _get('/notifications/schedules'));
+
+  /// Replace the whole reminder set. [items] each = {minutes, days(7 bools),
+  /// enabled}; [offsetMinutes] is the device's current UTC offset.
+  static Future<void> saveSchedules(
+          List<Map<String, dynamic>> items, int offsetMinutes) async =>
+      _decode(await _send(() => http.put(
+            Uri.parse('$base/notifications/schedules'),
+            headers: _headers,
+            body: jsonEncode(
+                {'utc_offset_minutes': offsetMinutes, 'items': items}),
+          )));
 }

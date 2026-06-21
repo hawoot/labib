@@ -5,6 +5,7 @@ import '../api.dart';
 import '../prefs.dart';
 import '../streak.dart';
 import '../theme.dart';
+import 'notifications_screen.dart';
 
 const Color _magenta = Color(0xFFC13BFF);
 
@@ -185,6 +186,30 @@ class _ProfileTabState extends State<ProfileTab> {
               await Streak.setWindow(v);
               setState(() => _window = v);
             },
+          ),
+
+          const Divider(height: Space.xxl + Space.lg),
+
+          // --- Reminders ---------------------------------------------------
+          Text('Reminders', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: Space.xs),
+          Text(
+            'Set the times you’d like a nudge to practise. They arrive as push '
+            'notifications on this device.',
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: Space.md),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.notifications_active_outlined),
+              title: const Text('Set up reminders'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const NotificationsScreen())),
+            ),
           ),
 
           const Divider(height: Space.xxl + Space.lg),

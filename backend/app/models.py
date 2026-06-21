@@ -298,3 +298,27 @@ class DeviceToken(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class NotificationSchedule(Base):
+    """A recurring practice reminder the user set up (e.g. 08:00 on weekdays).
+
+    Times are stored as the user's LOCAL minutes-past-midnight plus the device's
+    UTC offset, so the worker can convert to "is it that time for this user right
+    now?" without a separate timezone table. `last_sent_on` (the user-local date
+    of the last fire) dedupes so each reminder fires at most once per day.
+    """
+
+    __tablename__ = "notification_schedules"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), index=True)
+    minutes: Mapped[int] = mapped_column(Integer)  # local minutes past midnight 0..1439
+    days: Mapped[list] = mapped_column(JSON, default=list)  # [Mon..Sun] booleans
+    utc_offset_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_sent_on: Mapped[str | None] = mapped_column(String(10), nullable=True)  # 'YYYY-MM-DD' local
+    created_at: Mapped[datetime.datetime] = _now_col()
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

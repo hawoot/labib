@@ -9,6 +9,8 @@ Flow:
 Tokens that FCM reports as stale/unregistered are deleted automatically so we
 don't keep trying to reach apps that were uninstalled.
 """
+import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -102,3 +104,76 @@ def send_test(
         ).delete(synchronize_session=False)
         db.commit()
     return {"devices": len(tokens), **result}
+
+
+# --------------------------------------------------------------------------- #
+#  Reminder schedules (the "Reminders" screen)
+# --------------------------------------------------------------------------- #
+class ScheduleItem(BaseModel):
+    minutes: int = Field(ge=0, le=1439)  # local minutes past midnight
+    days: list[bool] = Field(min_length=7, max_length=7)  # Mon..Sun
+    enabled: bool = True
+
+
+class SchedulesIn(BaseModel):
+    # The device's current UTC offset in minutes (local = UTC + offset), so the
+    # server can fire each reminder at the user's local time.
+    utc_offset_minutes: int = 0
+    items: list[ScheduleItem] = Field(default_factory=list)
+
+
+def _serialize(s: models.NotificationSchedule) -> dict:
+    return {"minutes": s.minutes, "days": s.days, "enabled": s.enabled}
+
+
+@router.get("/schedules")
+def list_schedules(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(models.NotificationSchedule)
+        .filter_by(user_id=user.id)
+        .order_by(models.NotificationSchedule.minutes)
+        .all()
+    )
+    offset = rows[0].utc_offset_minutes if rows else 0
+    return {"utc_offset_minutes": offset, "items": [_serialize(r) for r in rows]}
+
+
+@router.put("/schedules")
+def replace_schedules(
+    body: SchedulesIn,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Replace the user's whole reminder set with what the screen shows.
+
+    Simpler than per-row CRUD and a perfect fit for the table UI: the client
+    always sends the complete list. To avoid a surprise notification the moment
+    you save in the evening, any reminder whose time has already passed *today*
+    is marked as already-sent for today, so it first fires tomorrow.
+    """
+    db.query(models.NotificationSchedule).filter_by(user_id=user.id).delete()
+
+    local_now = datetime.datetime.utcnow() + datetime.timedelta(
+        minutes=body.utc_offset_minutes
+    )
+    local_today = local_now.date().isoformat()
+    now_minutes = local_now.hour * 60 + local_now.minute
+    today_idx = local_now.weekday()  # Mon=0 .. Sun=6
+
+    for item in body.items:
+        already_passed = item.days[today_idx] and item.minutes <= now_minutes
+        db.add(
+            models.NotificationSchedule(
+                user_id=user.id,
+                minutes=item.minutes,
+                days=item.days,
+                utc_offset_minutes=body.utc_offset_minutes,
+                enabled=item.enabled,
+                last_sent_on=local_today if already_passed else None,
+            )
+        )
+    db.commit()
+    return {"status": "ok", "count": len(body.items)}
