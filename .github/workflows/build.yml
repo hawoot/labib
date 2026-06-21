@@ -111,19 +111,20 @@ jobs:
           # Written with printf (not a heredoc) so every line stays inside this
           # YAML block scalar. Reflection keeps it AGP-DSL-version agnostic.
           ROOT_GRADLE=android/build.gradle.kts
-          if ! grep -q 'forced compileSdk' "$ROOT_GRADLE"; then
+          if ! grep -q 'labibForceCompileSdk' "$ROOT_GRADLE"; then
             printf '%s\n' \
               '' \
               '// forced compileSdk: file_picker needs consumers on Android API 36.' \
+              'fun labibForceCompileSdk(p: org.gradle.api.Project) {' \
+              '    val android = p.extensions.findByName("android") ?: return' \
+              '    val methods = android.javaClass.methods' \
+              '    val setter = methods.firstOrNull { it.name == "setCompileSdk" && it.parameterCount == 1 }' \
+              '        ?: methods.firstOrNull { it.name == "compileSdkVersion" && it.parameterCount == 1 && it.parameterTypes[0] == Integer.TYPE }' \
+              '        ?: methods.firstOrNull { it.name == "setCompileSdkVersion" && it.parameterCount == 1 && it.parameterTypes[0] == Integer.TYPE }' \
+              '    setter?.invoke(android, 36)' \
+              '}' \
               'subprojects {' \
-              '    afterEvaluate {' \
-              '        val android = extensions.findByName("android") ?: return@afterEvaluate' \
-              '        val methods = android.javaClass.methods' \
-              '        val setter = methods.firstOrNull { it.name == "setCompileSdk" && it.parameterCount == 1 }' \
-              '            ?: methods.firstOrNull { it.name == "compileSdkVersion" && it.parameterCount == 1 && it.parameterTypes[0] == Integer.TYPE }' \
-              '            ?: methods.firstOrNull { it.name == "setCompileSdkVersion" && it.parameterCount == 1 && it.parameterTypes[0] == Integer.TYPE }' \
-              '        setter?.invoke(android, 36)' \
-              '    }' \
+              '    if (state.executed) labibForceCompileSdk(project) else afterEvaluate { labibForceCompileSdk(project) }' \
               '}' \
               >> "$ROOT_GRADLE"
           fi
