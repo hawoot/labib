@@ -286,9 +286,4 @@ class Api {
           {String platform = 'android'}) async =>
       _decode(await _post('/notifications/register-device',
           {'token': token, 'platform': platform}));
-
-  /// Ask the server to send a test push to this account's devices. Returns
-  /// {devices, sent, failed, ...}.
-  static Future<Map<String, dynamic>> sendTestNotification() async =>
-      _asMap(await _post('/notifications/test'));
 }

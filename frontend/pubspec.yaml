@@ -41,6 +41,9 @@ dependencies:
   # worked-out work (image capture/pick). Both work on mobile and web.
   speech_to_text: ^7.0.0
   image_picker: ^1.1.2
+  # Native file picking (PDF/text/markdown) on Android/iOS. Web keeps using the
+  # browser file dialog (see lib/file_picker.dart).
+  file_picker: ^8.1.4
   # Push notifications (native Android/iOS). On web these stay dormant — we only
   # initialise Firebase off-web (see lib/push.dart).
   firebase_core: ^3.6.0
