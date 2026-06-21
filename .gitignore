@@ -1,5 +1,8 @@
-# Secrets — NEVER commit this
+# Secrets — NEVER commit these
 .env
+# Firebase service-account key (the push "send" credential)
+firebase-service-account.json
+*-firebase-adminsdk-*.json
 
 # Local data (SQLite DB + uploaded files)
 *.db
