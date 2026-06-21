@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from . import models  # noqa: F401  (import so tables register on Base.metadata)
 from .config import get_settings
-from .db import Base, engine, get_db
+from .db import Base, engine, ensure_columns, get_db
 from .routers import (
     auth,
     debug,
@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     if os.environ.get("RESET_DB") == "1":
         Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    ensure_columns()  # add any columns added to existing tables since last deploy
     start_worker()  # background crunch worker
     yield
     stop_worker()

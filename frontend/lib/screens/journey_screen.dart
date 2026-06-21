@@ -23,6 +23,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
   Map<String, dynamic>? _curriculum;
   Timer? _poll;
   bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -37,36 +38,52 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 
   Future<void> _load() async {
-    final docs = await Api.listDocuments(_jid);
-    final job = await Api.getIngest(_jid);
-    Map<String, dynamic>? cur;
-    if (job != null && job['status'] == 'done') {
-      cur = await Api.getCurriculum(_jid);
-    }
-    if (!mounted) return;
-    setState(() {
-      _documents = docs;
-      _job = job;
-      _curriculum = cur;
-      _loading = false;
-    });
-    if (job != null && (job['status'] == 'queued' || job['status'] == 'running')) {
-      _startPolling();
+    try {
+      final docs = await Api.listDocuments(_jid);
+      final job = await Api.getIngest(_jid);
+      Map<String, dynamic>? cur;
+      if (job != null && job['status'] == 'done') {
+        cur = await Api.getCurriculum(_jid);
+      }
+      if (!mounted) return;
+      setState(() {
+        _documents = docs;
+        _job = job;
+        _curriculum = cur;
+        _loading = false;
+        _error = null;
+      });
+      if (job != null &&
+          (job['status'] == 'queued' || job['status'] == 'running')) {
+        _startPolling();
+      }
+    } catch (e) {
+      // Never leave the screen on an infinite spinner — surface the error and
+      // let the user retry.
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e';
+      });
     }
   }
 
   void _startPolling() {
     _poll?.cancel();
     _poll = Timer.periodic(const Duration(seconds: 2), (_) async {
-      final job = await Api.getIngest(_jid);
-      if (!mounted) return;
-      setState(() => _job = job);
-      if (job != null && job['status'] == 'done') {
-        _poll?.cancel();
-        final cur = await Api.getCurriculum(_jid);
-        if (mounted) setState(() => _curriculum = cur);
-      } else if (job != null && job['status'] == 'failed') {
-        _poll?.cancel();
+      try {
+        final job = await Api.getIngest(_jid);
+        if (!mounted) return;
+        setState(() => _job = job);
+        if (job != null && job['status'] == 'done') {
+          _poll?.cancel();
+          final cur = await Api.getCurriculum(_jid);
+          if (mounted) setState(() => _curriculum = cur);
+        } else if (job != null && job['status'] == 'failed') {
+          _poll?.cancel();
+        }
+      } catch (_) {
+        // A transient poll error shouldn't crash the timer; try again next tick.
       }
     });
   }
@@ -167,7 +184,9 @@ class _JourneyScreenState extends State<JourneyScreen> {
       appBar: AppBar(title: Text(widget.journey['title'] ?? 'Journey')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
+          : _error != null
+              ? _errorView()
+              : RefreshIndicator(
               onRefresh: _load,
               // Pad the bottom by the system nav-bar inset. Since compileSdk 36
               // the app is edge-to-edge (Android 15), so without this the last
@@ -209,6 +228,43 @@ class _JourneyScreenState extends State<JourneyScreen> {
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _errorView() {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off, size: 40, color: scheme.onSurfaceVariant),
+            const SizedBox(height: 12),
+            Text("Couldn't load this journey",
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text('$_error',
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: scheme.onSurfaceVariant)),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () {
+                setState(() {
+                  _loading = true;
+                  _error = null;
+                });
+                _load();
+              },
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
