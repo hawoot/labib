@@ -272,12 +272,14 @@ class Api {
 
   /// One turn of the per-question tutor chat. [messages] is the full
   /// conversation so far — each {role: 'user'|'assistant', text, image?} —
-  /// sent every turn so the tutor keeps full context. Returns
+  /// sent every turn so the tutor keeps full context. Set [closed] once the
+  /// question has a verdict so follow-ups aren't re-graded. Returns
   /// {reply, solved, score}.
   static Future<Map<String, dynamic>> chat(
-          String jid, String questionId, List<Map<String, dynamic>> messages) async =>
+          String jid, String questionId, List<Map<String, dynamic>> messages,
+          {bool closed = false}) async =>
       _asMap(await _post('/journeys/$jid/questions/$questionId/chat',
-          {'messages': messages}));
+          {'messages': messages, 'closed': closed}));
 
   // --- Notifications -------------------------------------------------------
 

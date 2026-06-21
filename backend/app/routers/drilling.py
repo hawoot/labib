@@ -82,7 +82,9 @@ def chat(
             content = m.text
         history.append({"role": m.role, "content": content})
     try:
-        result = drilling.chat_turn(db, user, journey_id, question_id, history)
+        result = drilling.chat_turn(
+            db, user, journey_id, question_id, history, graded=not payload.closed
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return ChatOut(**result)
