@@ -276,3 +276,25 @@ class Attempt(Base):
     correct: Mapped[bool] = mapped_column(Boolean, default=False)
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime.datetime] = _now_col()
+
+
+class DeviceToken(Base):
+    """A phone that has opted in to push notifications.
+
+    `token` is the FCM registration token the app obtains from Firebase — the
+    "delivery address" for one install. It's unique: the same token can only
+    belong to one user, so if a device is re-used by another account we move it
+    (the upsert in the register endpoint). Push is sent by looking up all of a
+    user's tokens and asking FCM to deliver to each.
+    """
+
+    __tablename__ = "device_tokens"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(32), ForeignKey("users.id"), index=True)
+    token: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    platform: Mapped[str] = mapped_column(String(16), default="android")  # android|ios|web
+    created_at: Mapped[datetime.datetime] = _now_col()
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

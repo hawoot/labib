@@ -278,4 +278,17 @@ class Api {
           String jid, String questionId, List<Map<String, dynamic>> messages) async =>
       _asMap(await _post('/journeys/$jid/questions/$questionId/chat',
           {'messages': messages}));
+
+  // --- Notifications -------------------------------------------------------
+
+  /// Register this device's FCM token so the engine can push to it.
+  static Future<void> registerPushToken(String token,
+          {String platform = 'android'}) async =>
+      _decode(await _post('/notifications/register-device',
+          {'token': token, 'platform': platform}));
+
+  /// Ask the server to send a test push to this account's devices. Returns
+  /// {devices, sent, failed, ...}.
+  static Future<Map<String, dynamic>> sendTestNotification() async =>
+      _asMap(await _post('/notifications/test'));
 }
